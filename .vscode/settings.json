@@ -1,0 +1,9 @@
+{
+    "makefile.launchConfigurations": [
+        {
+            "cwd": "d:\\SMA\\output",
+            "binaryPath": "d:\\SMA\\output\\main.exe",
+            "binaryArgs": []
+        }
+    ]
+}
