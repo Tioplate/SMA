@@ -5,5 +5,8 @@
             "binaryPath": "d:\\SMA\\output\\main.exe",
             "binaryArgs": []
         }
-    ]
+    ],
+    "files.associations": {
+        "fitness.h": "c"
+    }
 }
