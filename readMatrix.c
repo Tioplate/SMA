@@ -9,7 +9,7 @@ dataMatrix* readMatrix(char* path)
     dataMatrix *data = malloc(sizeof(dataMatrix));
     if (!fp)
     {
-        perror("文件打开失败");
+        perror("failed to open file");
         return NULL;
     }
 
@@ -19,12 +19,12 @@ dataMatrix* readMatrix(char* path)
     // 1. 读取节点数量
     if (fgets(line, LINE_LEN, fp) == NULL)
     {
-        printf("读取节点数量失败\n");
+        printf("failed to load size of nodes\n");
         fclose(fp);
         return NULL;
     }
     sscanf(line, "%d", &n);
-    printf("节点数: %d\n", n);
+    printf("nodes size: %d\n", n);
 
     // 2. 读取距离矩阵
     double **dist = malloc(n * sizeof(double *));

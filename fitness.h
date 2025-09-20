@@ -23,7 +23,7 @@ typedef struct
 {
     FIT_DATA_TYPE distance;
     FIT_DATA_TYPE time;
-    int xIndex
+    int xIndex;
 } xDataTime;
 
 
@@ -32,5 +32,6 @@ typedef struct
 FIT_DATA_TYPE F1(FIT_DATA_TYPE *x, int dim);
 FIT_DATA_TYPE TSP(FIT_DATA_TYPE *x, int dim);
 FIT_DATA_TYPE TSPTW(FIT_DATA_TYPE *x, int dim, FIT_DATA_TYPE speed, dataMatrix *routeData);
+FIT_DATA_TYPE TSPTW_soft(FIT_DATA_TYPE *x, int dim, FIT_DATA_TYPE speed, dataMatrix *routeData, FIT_DATA_TYPE alphaEarly, FIT_DATA_TYPE alphaLate);
 xData *sortX(xData *order, int dim);
 FIT_DATA_TYPE **adjustPostion(FIT_DATA_TYPE **x,int pop, int dim);
