@@ -6,7 +6,6 @@
 int main()
 {
     const char *dataPath = "../dataset/rc_205.3.txt"; //
-    printf("NMSL");
     FIT_DATA_TYPE lb[DIM];
     FIT_DATA_TYPE ub[DIM];
     for (int i = 0; i < DIM; i++)
