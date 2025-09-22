@@ -17,7 +17,9 @@ JNIEXPORT jobject JNICALL Java_com_research_sma_controller_SMAController_runSMA(
     jdoubleArray jCurve = (*env)->NewDoubleArray(env, result->iterationATime);
     (*env)->SetDoubleArrayRegion(env, jCurve, 0, result->iterationATime, result->convergenceCurve);
     jdoubleArray jBest = (*env)->NewDoubleArray(env, result->dimension);
+    jdoubleArray jBestStart = (*env)->NewDoubleArray(env, result->dimension);
     (*env)->SetDoubleArrayRegion(env, jBest, 0, result->dimension, result->bestPositions);
+    (*env)->SetDoubleArrayRegion(env, jBestStart, 0, result->dimension, result->bestPositionsStart);
 
     jobject jResult = (*env)->NewObject(env, resultClass, ctor,
                                         result->pop,
@@ -25,7 +27,8 @@ JNIEXPORT jobject JNICALL Java_com_research_sma_controller_SMAController_runSMA(
                                         result->iterationATime,
                                         result->destinationFitness,
                                         jCurve,
-                                        jBest);
+                                        jBest,
+                                        jBestStart);
     free(result->bestPositions);
     free(result->convergenceCurve);
     free(result);

@@ -8,6 +8,7 @@ typedef struct
     FIT_DATA_TYPE destinationFitness;
     FIT_DATA_TYPE *convergenceCurve; // 数组，大小为iterationATime
     FIT_DATA_TYPE *bestPositions;    // 数组，大小为dimension
+    FIT_DATA_TYPE *bestPositionsStart; // 最初始最优解下X取值的数组（优先级键）
 } SMAResult;
 
 FIT_DATA_TYPE **initialization(int pop, int DIM);

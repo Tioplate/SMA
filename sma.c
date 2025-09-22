@@ -100,6 +100,7 @@ SMAResult* SMA(int pop, int DIM, FIT_DATA_TYPE *lb, FIT_DATA_TYPE *ub, char *dat
     FIT_DATA_TYPE **x = initialization(pop, DIM);              // pop initialization
     fitnessData *fit;                                     // 种群个体适应度数组
     FIT_DATA_TYPE *bestPositions;                         //(当前)最优解下X取值的数组（优先级键）
+    FIT_DATA_TYPE *bestPositionsStart;                     // 最初始最优解下X取值的数组（优先级键）
     FIT_DATA_TYPE destinationFitness = FIT_DATA_TYPE_MAX; // 当前最佳适应度
     FIT_DATA_TYPE *convergenceCurve;                      // 收敛曲线
     FIT_DATA_TYPE **W;                                    // 黏菌权重矩阵
@@ -111,6 +112,7 @@ SMAResult* SMA(int pop, int DIM, FIT_DATA_TYPE *lb, FIT_DATA_TYPE *ub, char *dat
     convergenceCurve = (FIT_DATA_TYPE *)malloc((T) * sizeof(FIT_DATA_TYPE));
     W = (FIT_DATA_TYPE **)malloc(pop * sizeof(FIT_DATA_TYPE *));
     bestPositions = (FIT_DATA_TYPE *)malloc(DIM * sizeof(FIT_DATA_TYPE));
+    bestPositionsStart = (FIT_DATA_TYPE *)malloc(DIM * sizeof(FIT_DATA_TYPE));
     for (int i = 0; i < pop; i++)
     {
         W[i] = (FIT_DATA_TYPE *)malloc(DIM * sizeof(FIT_DATA_TYPE));
@@ -163,6 +165,7 @@ SMAResult* SMA(int pop, int DIM, FIT_DATA_TYPE *lb, FIT_DATA_TYPE *ub, char *dat
             for (int j = 0; j < DIM; j++)
             {
                 bestPositions[j] = x[fit[i].popIndex][j];
+                bestPositionsStart[j] = x[fit[i].popIndex][j];
             }
         }
     }
@@ -330,6 +333,7 @@ SMAResult* SMA(int pop, int DIM, FIT_DATA_TYPE *lb, FIT_DATA_TYPE *ub, char *dat
     result->iterationATime = T;
     result->destinationFitness = destinationFitness;
     result->bestPositions = bestPositions;
+    result->bestPositionsStart = bestPositionsStart;
     result->convergenceCurve = convergenceCurve;
     free(x);
     free(fit);
