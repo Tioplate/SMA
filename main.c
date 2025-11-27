@@ -4,7 +4,7 @@
 
 // 保持种群规模与速度常量
 #define POP 50
-#define SPEED 1
+#define SPEED 2
 
 // 读取数据文件第一行的维度（节点数）
 static int readDimFromDataset(const char *path)
