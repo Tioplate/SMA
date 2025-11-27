@@ -578,11 +578,51 @@ SMAResult* SMA(int pop, int DIM, const FIT_DATA_TYPE *lb, const FIT_DATA_TYPE *u
 
     endClock = clock();
     double elapsed_ms = (double)(endClock - startClock) * 1000.0 / (double)CLOCKS_PER_SEC;
+
+    // 计算最优解的实际距离（不含超时惩罚）
+    FIT_DATA_TYPE finalActualDistance = 0.0;
+    {
+        // 构造客户排序数组，仅包含 1..DIM-1 节点
+        xData *order = (xData *)malloc((DIM - 1) * sizeof(xData));
+        int k = 0;
+        for (int i = 1; i < DIM; i++)
+        {
+            order[k].xIndex = i;
+            order[k].data = bestPositions[i];
+            k++;
+        }
+        order = sortX(order, DIM - 1);
+
+        // 计算总距离
+        // 仓库 -> 第一个客户
+        if (DIM > 1)
+        {
+            int first = order[0].xIndex;
+            finalActualDistance += data->dist[0][first];
+        }
+        // 客户之间
+        for (int i = 0; i < DIM - 2; i++)
+        {
+            int from = order[i].xIndex;
+            int to = order[i + 1].xIndex;
+            finalActualDistance += data->dist[from][to];
+        }
+        // 最后一个客户 -> 仓库
+        if (DIM > 1)
+        {
+            int last = order[DIM - 2].xIndex;
+            finalActualDistance += data->dist[last][0];
+        }
+
+        free(order);
+    }
+
     // NOTE: 不再原地把 bestPositions（优先级键）覆盖为索引，保留 keys 以便外部使用。
     // 使用 buildRouteFromKeys 构造闭合路线用于打印（0 开始、0 结束）
     FIT_DATA_TYPE *route = buildRouteFromKeys(bestPositions, DIM);
     printf("Iteration time: %d.\n", T);
     printf("Done, the best fitness is %lf, time %.3f ms.\n", destinationFitness, elapsed_ms);
+    printf("Final actual distance (without penalty): %.0f\n", finalActualDistance);
     if (route)
     {
         printf("Route (0->...->0): [");

@@ -32,18 +32,18 @@ FIT_DATA_TYPE F1(FIT_DATA_TYPE *x, int dim)
 // ...existing code...
 
 /*
-    TSPTW（硬时间窗，可行性优先）
+    TSPTW（软时间窗惩罚）
     输入：
       - x: 个体的优先级键数组（长度 dim），其中 x[0] 对应仓库键，但不参与排序；
       - dim: 维度/节点总数（包含仓库）；
       - speed: 行驶速度，用于将距离转化为时间；
       - routeData: 路网数据（距离矩阵 dist 与时间窗 tw）。
     输出：
-      - 可行时返回总行驶距离；不可行时返回 FIT_DATA_TYPE_MAX（DBL_MAX）。
+      - 适应度 = 总行驶距离 + 100 * (所有超时节点的超时时间之和)
     细节：
       - 仅客户(1..dim-1)参与排序，仓库固定为起终点；
-      - 早到等待，迟到即不可行；
-      - 返仓不做时间窗硬检查（如有需要可自行加上）。
+      - 早到等待，迟到累计超时惩罚；
+      - 返仓也检查时间窗，如有超时也计入惩罚。
 */
 FIT_DATA_TYPE TSPTW(FIT_DATA_TYPE *x, int dim, FIT_DATA_TYPE speed, dataMatrix *routeData)
 {
@@ -62,17 +62,24 @@ FIT_DATA_TYPE TSPTW(FIT_DATA_TYPE *x, int dim, FIT_DATA_TYPE speed, dataMatrix *
     order = sortX(order, dim - 1); // 升序排序，得到访问顺序
 
     // 时间推进与距离累计变量
-    FIT_DATA_TYPE currentTime = 0.0;  // 当前到达时间
-    FIT_DATA_TYPE startTime;          // 目标点的最早时间窗
-    FIT_DATA_TYPE endTime;            // 目标点的最晚时间窗
-    FIT_DATA_TYPE travelTime;         // 路段行驶时间 = 距离 / 速度
-    FIT_DATA_TYPE distance;           // 路段距离
-    FIT_DATA_TYPE totalDistance = 0.0;// 目标：总行驶距离
+    FIT_DATA_TYPE currentTime = 0.0;     // 当前到达时间
+    FIT_DATA_TYPE startTime;             // 目标点的最早时间窗
+    FIT_DATA_TYPE endTime;               // 目标点的最晚时间窗
+    FIT_DATA_TYPE travelTime;            // 路段行驶时间 = 距离 / 速度
+    FIT_DATA_TYPE distance;              // 路段距离
+    FIT_DATA_TYPE totalDistance = 0.0;   // 总行驶距离
+    FIT_DATA_TYPE totalOvertime = 0.0;   // 所有超时节点的超时时间之和
 
     // 仓库（0）最早时间出发：若当前时间更早则先等待到 earliest
     startTime = routeData->tw[0].earliest;
+    endTime = routeData->tw[0].latest;
     if (currentTime < startTime)
         currentTime = startTime;
+    // 仓库出发也可能超时，计入惩罚
+    if (currentTime > endTime)
+    {
+        totalOvertime += (currentTime - endTime);
+    }
 
     // 1) 仓库 -> 第一位客户（若存在客户）
     if (dim > 1)
@@ -84,11 +91,10 @@ FIT_DATA_TYPE TSPTW(FIT_DATA_TYPE *x, int dim, FIT_DATA_TYPE speed, dataMatrix *
         totalDistance += distance;
         startTime = routeData->tw[first].earliest;
         endTime = routeData->tw[first].latest;
-        // 超过最晚时间窗，直接不可行
+        // 超过最晚时间窗，累计超时
         if (currentTime > endTime)
         {
-            free(order);
-            return FIT_DATA_TYPE_MAX; // 不可行
+            totalOvertime += (currentTime - endTime);
         }
         // 早于最早窗，等待
         if (currentTime < startTime)
@@ -106,16 +112,17 @@ FIT_DATA_TYPE TSPTW(FIT_DATA_TYPE *x, int dim, FIT_DATA_TYPE speed, dataMatrix *
         endTime = routeData->tw[to].latest;
         currentTime += travelTime;
         totalDistance += distance;
+        // 超时则累计惩罚
         if (currentTime > endTime)
         {
-            free(order);
-            return FIT_DATA_TYPE_MAX; // 不可行
+            totalOvertime += (currentTime - endTime);
         }
+        // 等待到最早窗
         if (currentTime < startTime)
-            currentTime = startTime; // 等待到最早窗
+            currentTime = startTime;
     }
 
-    // 3) 最后一个客户 -> 仓库：返航距离计入目标；一般不对仓库回窗做硬检查
+    // 3) 最后一个客户 -> 仓库：返航距离计入目标，也检查仓库返回时间窗
     if (dim > 1)
     {
         int last = order[dim - 2].xIndex;
@@ -123,10 +130,23 @@ FIT_DATA_TYPE TSPTW(FIT_DATA_TYPE *x, int dim, FIT_DATA_TYPE speed, dataMatrix *
         travelTime = distance / speed;
         currentTime += travelTime;
         totalDistance += distance;
+        // 检查返回仓库的时间窗
+        endTime = routeData->tw[0].latest;
+        if (currentTime > endTime)
+        {
+            totalOvertime += (currentTime - endTime);
+        }
     }
 
     free(order);
-    return totalDistance; // 可行路线的总行驶距离
+
+    // 适应度 = 总距离 + 100 * 总超时惩罚
+    FIT_DATA_TYPE fitness = totalDistance + 100.0 * totalOvertime;
+
+    // 输出实际距离
+    //printf("distance: %.0f\n", totalDistance);
+
+    return fitness;
 }
 
 /*
