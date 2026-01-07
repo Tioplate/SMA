@@ -1,5 +1,10 @@
-// filepath: d:\mypro\SMA\SMA_Back\sma.c
 #include "sma.h"
+
+// 生成 [0,1) 范围内的随机浮点数
+FIT_DATA_TYPE rand01()
+{
+    return (FIT_DATA_TYPE)rand() / (FIT_DATA_TYPE)RAND_MAX;
+}
 
 /*
 =================================================================================
@@ -231,7 +236,7 @@ SMAResult* SMA(int pop, int DIM, const FIT_DATA_TYPE *lb, const FIT_DATA_TYPE *u
     {
         // 统计早窗/晚窗范围（跳过仓库0）
         double minEar = 1e18, maxEar = -1e18;
-        double minLat = 1e18, maxLat = -1e18;
+        double minLat = 1e18, maxLat = data->tw[1].latest;
         for (int j = 1; j < DIM; j++)
         {
             if (data->tw[j].earliest < minEar) minEar = data->tw[j].earliest;
@@ -283,7 +288,7 @@ SMAResult* SMA(int pop, int DIM, const FIT_DATA_TYPE *lb, const FIT_DATA_TYPE *u
 
     // 预设打印里程碑：等间隔打印10次最佳fitness（包含初始迭代1与最后迭代T）
     const int milestoneCount = 10;
-    int milestones[milestoneCount];
+    int *milestones = (int *)malloc(milestoneCount * sizeof(int));
     milestones[0] = 1;            // 第一次迭代
     milestones[milestoneCount - 1] = T; // 最后一次迭代
     // 中间里程碑均匀分布在 (1, T) 之间
@@ -617,12 +622,44 @@ SMAResult* SMA(int pop, int DIM, const FIT_DATA_TYPE *lb, const FIT_DATA_TYPE *u
         free(order);
     }
 
-    // NOTE: 不再原地把 bestPositions（优先级键）覆盖为索引，保留 keys 以便外部使用。
-    // 使用 buildRouteFromKeys 构造闭合路线用于打印（0 开始、0 结束）
+    // 新增：计算最优路线的 makespan（基于最终解码的路线，而非重新排序）
+    FIT_DATA_TYPE finalMakespan = 0.0;
     FIT_DATA_TYPE *route = buildRouteFromKeys(bestPositions, DIM);
+    if (route && data != NULL && DIM > 0)
+    {
+        FIT_DATA_TYPE currentTime = 0.0;
+        FIT_DATA_TYPE speedVal = (speed <= 0) ? 1.0 : (FIT_DATA_TYPE)speed;
+
+        // 仓库出发：等待到仓库最早时间
+        FIT_DATA_TYPE startTime = data->tw[0].earliest;
+        if (currentTime < startTime) currentTime = startTime;
+
+        // 按路线逐段累加：route[0]=0, route[1..DIM-1]=客户, route[DIM]=0
+        for (int i = 0; i < DIM; i++)
+        {
+            int from = (int)route[i];
+            int to = (int)route[i + 1];
+            FIT_DATA_TYPE distance = data->dist[from][to];
+            FIT_DATA_TYPE travelTime = distance / speedVal;
+            currentTime += travelTime;
+
+            // 到达后检查时间窗（最后回仓库不检查等待）
+            if (i < DIM - 1) // 不是最后一段（返回仓库）
+            {
+                startTime = data->tw[to].earliest;
+                if (currentTime < startTime) currentTime = startTime;
+            }
+        }
+
+        finalMakespan = currentTime;
+    }
+
+    // NOTE: 不再原地把 bestPositions（优先级键）覆盖为索引，保留 keys 以便外部使用.
+    // 使用 buildRouteFromKeys 构造闭合路线用于打印（0 开始、0 结束）
     printf("Iteration time: %d.\n", T);
     printf("Done, the best fitness is %lf, time %.3f ms.\n", destinationFitness, elapsed_ms);
-    printf("Final actual distance (without penalty): %.0f\n", finalActualDistance);
+    printf("Final actual distance (without penalty): %.2f\n", finalActualDistance);
+    printf("Final makespan (total time including waiting, return to depot): %.2f\n", finalMakespan);
     if (route)
     {
         printf("Route (0->...->0): [");
@@ -648,6 +685,7 @@ SMAResult* SMA(int pop, int DIM, const FIT_DATA_TYPE *lb, const FIT_DATA_TYPE *u
         free(x[i]);
         free(W[i]);
     }
+    free(milestones); // 释放动态分配的里程碑数组
     SMAResult *result = (SMAResult *)malloc(sizeof(SMAResult));
     result->pop = pop;
     result->dimension = DIM;
@@ -656,42 +694,1010 @@ SMAResult* SMA(int pop, int DIM, const FIT_DATA_TYPE *lb, const FIT_DATA_TYPE *u
     result->bestPositions = bestPositions;
     result->bestPositionsStart = bestPositionsStart;
     result->convergenceCurve = convergenceCurve;
+    result->finalDistance = finalActualDistance;    // 存储最终距离
+    result->finalMakespan = finalMakespan;          // 存储最终makespan
+    result->elapsedTimeMs = elapsed_ms;
+    result->earlyStopTriggered = 0;                 // 未提前停止
     free(x);
     free(fit);
-    // bestPositions / convergenceCurve 交由 result 管理
     freeDataMatrix(data);
     free(W);
     return result;
 }
 
-/* rand01：返回 [0,1) 的随机小数 */
-FIT_DATA_TYPE rand01()
+/*
+    SMA_TimeLimited：基于时间限制的SMA算法
+    - 参数与原SMA相同，但增加 timeLimitSeconds 参数指定运行时间上限（秒）
+    - 算法会持续运行直到达到时间限制，而非固定迭代次数
+    - 内部会预估迭代次数上限，动态分配 convergenceCurve
+*/
+SMAResult* SMA_TimeLimited(int pop, int DIM, const FIT_DATA_TYPE *lb, const FIT_DATA_TYPE *ub, const char *dataPath, int speed, double timeLimitSeconds)
 {
-    return rand() / (FIT_DATA_TYPE)(RAND_MAX);
+    FIT_DATA_TYPE **x = initialization(pop, DIM);
+    fitnessData *fit;
+    FIT_DATA_TYPE *bestPositions;
+    FIT_DATA_TYPE *bestPositionsStart;
+    FIT_DATA_TYPE destinationFitness = FIT_DATA_TYPE_MAX;
+    FIT_DATA_TYPE **W;
+    FIT_DATA_TYPE bestFitness;
+    clock_t startClock, endClock;
+    dataMatrix *data = readMatrix((char*)dataPath);
+
+    // Add missing variable declarations
+    double expectedMakespan = -1.0;  // No early stop by default
+    int earlyStopTriggered = 0;
+
+    fit = (fitnessData *)malloc(pop * sizeof(fitnessData));
+    // 预分配一个较大的收敛曲线数组（预估最大迭代次数）
+    int maxIterations = 100000; // 足够大的上限
+    FIT_DATA_TYPE *convergenceCurve = (FIT_DATA_TYPE *)malloc(maxIterations * sizeof(FIT_DATA_TYPE));
+
+    W = (FIT_DATA_TYPE **)malloc(pop * sizeof(FIT_DATA_TYPE *));
+    bestPositions = (FIT_DATA_TYPE *)malloc(DIM * sizeof(FIT_DATA_TYPE));
+    bestPositionsStart = (FIT_DATA_TYPE *)malloc(DIM * sizeof(FIT_DATA_TYPE));
+    for (int i = 0; i < pop; i++)
+    {
+        W[i] = (FIT_DATA_TYPE *)malloc(DIM * sizeof(FIT_DATA_TYPE));
+    }
+
+    // 时间窗启发式初始化（与原SMA相同）
+    if (data && data->size >= DIM)
+    {
+        double minEar = 1e18, maxEar = -1e18;
+        double minLat = 1e18, maxLat = data->tw[1].latest;
+        for (int j = 1; j < DIM; j++)
+        {
+            if (data->tw[j].earliest < minEar) minEar = data->tw[j].earliest;
+            if (data->tw[j].earliest > maxEar) maxEar = data->tw[j].earliest;
+            if (data->tw[j].latest < minLat) minLat = data->tw[j].latest;
+            if (data->tw[j].latest > maxLat) maxLat = data->tw[j].latest;
+        }
+        for (int j = 0; j < DIM; j++) x[0][j] = 0;
+        for (int j = 1; j < DIM; j++)
+            x[0][j] = normalize_range(data->tw[j].earliest, minEar, maxEar, DIM) + 1e-6 * j;
+        if (pop > 1)
+        {
+            for (int j = 0; j < DIM; j++) x[1][j] = 0;
+            for (int j = 1; j < DIM; j++)
+                x[1][j] = normalize_range(data->tw[j].latest, minLat, maxLat, DIM) + 1e-6 * j;
+        }
+        if (pop > 2)
+        {
+            for (int j = 0; j < DIM; j++) x[2][j] = 0;
+            for (int j = 1; j < DIM; j++)
+            {
+                double mid = 0.5 * (data->tw[j].earliest + data->tw[j].latest);
+                x[2][j] = normalize_range(mid, minEar, maxEar, DIM) + 1e-6 * j;
+            }
+        }
+    }
+
+    // 初始评估
+    for (int i = 0; i < pop; i++)
+    {
+        fit[i].popIndex = i;
+        fit[i].fitness = TSPTW(x[i], DIM, speed, data);
+        if (fit[i].fitness < destinationFitness)
+        {
+            destinationFitness = fit[i].fitness;
+            for (int j = 0; j < DIM; j++)
+            {
+                bestPositions[j] = x[fit[i].popIndex][j];
+                bestPositionsStart[j] = x[fit[i].popIndex][j];
+            }
+        }
+    }
+
+    int t = 1;
+    startClock = clock();
+    double timeLimitClocks = timeLimitSeconds * CLOCKS_PER_SEC;
+
+    int lastImprovementIter = 0;
+    int patience = 100; // 基于时间的情况下，用固定值
+    int boostCounter = 0;
+    const double zBase = Z;
+
+    // 主循环：基于时间限制而非固定迭代次数
+    while (1)
+    {
+        // 检查是否超时
+        clock_t currentClock = clock();
+        if ((currentClock - startClock) >= timeLimitClocks)
+        {
+            break; // 达到时间限制，退出
+        }
+
+        // 检查是否超出预分配的迭代次数
+        if (t > maxIterations)
+        {
+            // 扩展收敛曲线数组
+            maxIterations *= 2;
+            convergenceCurve = (FIT_DATA_TYPE *)realloc(convergenceCurve, maxIterations * sizeof(FIT_DATA_TYPE));
+        }
+
+        // 排序并更新
+        fit = sortFitness(fit, pop);
+        x = sortIndex(x, fit, pop);
+        for (int i = 0; i < pop; ++i) {
+            fit[i].popIndex = i;
+        }
+        bestFitness = fit[0].fitness;
+        FIT_DATA_TYPE worstFitness = fit[pop - 1].fitness;
+
+        int skipUpdate = 0;
+        if (bestFitness == FIT_DATA_TYPE_MAX)
+        {
+            // 全体不可行，重采样
+            for (int i = 0; i < pop; i++)
+            {
+                for (int j = 0; j < DIM; j++)
+                {
+                    x[i][j] = (FIT_DATA_TYPE)rand01() * (DIM - 1) + 1e-6 * j;
+                }
+            }
+            if (data && data->size >= DIM)
+            {
+                double minEar = 1e18, maxEar = -1e18;
+                for (int j = 1; j < DIM; j++)
+                {
+                    if (data->tw[j].earliest < minEar) minEar = data->tw[j].earliest;
+                    if (data->tw[j].earliest > maxEar) maxEar = data->tw[j].earliest;
+                }
+                for (int i = 0; i < pop/2; i++)
+                {
+                    x[i][0] = 0;
+                    for (int j = 1; j < DIM; j++)
+                        x[i][j] = normalize_range(data->tw[j].earliest, minEar, maxEar, DIM) + 1e-6 * j;
+                }
+            }
+            skipUpdate = 1;
+        }
+
+        if (!skipUpdate)
+        {
+            FIT_DATA_TYPE S = (worstFitness - bestFitness) + 1e-8;
+            if (S < 1e-12) S = 1e-12;
+
+            for (int i = 0; i < pop; i++)
+            {
+                for (int j = 0; j < DIM; j++)
+                {
+                    if (fit[i].fitness == FIT_DATA_TYPE_MAX)
+                    {
+                        W[i][j] = 0.0;
+                        continue;
+                    }
+                    FIT_DATA_TYPE numer = (fit[i].fitness - bestFitness);
+                    if (numer < 0) numer = 0;
+                    FIT_DATA_TYPE frac = numer / S;
+                    if (i < pop / 2)
+                    {
+                        W[i][j] = 1 + rand01() * log10(frac + 1.0);
+                    }
+                    else
+                    {
+                        W[i][j] = 1 - rand01() * log10(frac + 1.0);
+                    }
+                }
+            }
+
+            // 使用基于时间进度的参数（估算总迭代数）
+            double timeProgress = (double)(currentClock - startClock) / timeLimitClocks;
+            FIT_DATA_TYPE tt = -(FIT_DATA_TYPE)timeProgress + 1;
+            FIT_DATA_TYPE a, b;
+            if (tt > -1 && tt < 1)
+            {
+                a = atanh(tt);
+            }
+            else
+            {
+                a = 1;
+            }
+            b = 1 - (FIT_DATA_TYPE)timeProgress;
+            if (b < 1e-3) b = 1e-3;
+
+            double zNow = zBase;
+            if (boostCounter > 0)
+            {
+                double zBoost = zBase * 5.0;
+                if (zBoost > 0.3) zBoost = 0.3;
+                zNow = zBoost;
+                boostCounter--;
+            }
+
+            // 位置更新
+            for (int i = 0; i < pop; i++)
+            {
+                FIT_DATA_TYPE *xOld = (FIT_DATA_TYPE *)malloc(DIM * sizeof(FIT_DATA_TYPE));
+                for (int j = 0; j < DIM; j++) xOld[j] = x[i][j];
+                FIT_DATA_TYPE oldFitness = fit[i].fitness;
+
+                double explorationProb = (zNow > 0.1) ? zNow : 0.1;
+                if (rand01() < explorationProb)
+                {
+                    for (int j = 0; j < DIM; j++)
+                    {
+                        FIT_DATA_TYPE newv = (FIT_DATA_TYPE)rand01() * (DIM - 1) + 1e-6 * j;
+                        newv += ((FIT_DATA_TYPE)rand01() * 2.0 - 1.0) * 1e-3;
+                        if (newv < 0) newv = 0; else if (newv > (DIM - 1)) newv = (DIM - 1);
+                        x[i][j] = newv;
+                    }
+                }
+                else
+                {
+                    FIT_DATA_TYPE p = tanh(fabs(fit[i].fitness - destinationFitness));
+                    FIT_DATA_TYPE *vb = (FIT_DATA_TYPE *)malloc(DIM * sizeof(FIT_DATA_TYPE));
+                    FIT_DATA_TYPE *vc = (FIT_DATA_TYPE *)malloc(DIM * sizeof(FIT_DATA_TYPE));
+                    for (int j = 0; j < DIM; j++)
+                    {
+                        FIT_DATA_TYPE r = rand01();
+                        int A, B;
+                        if (rand01() < 0.7) {
+                            A = rand() % (pop / 2 ? pop / 2 : 1);
+                            B = (pop / 2) + (rand() % (pop - (pop / 2) ? (pop - (pop / 2)) : 1));
+                        } else {
+                            A = rand() % pop;
+                            B = rand() % pop;
+                        }
+                        if (A == B) B = (B + 1) % pop;
+                        vb[j] = 2 * a * rand01() - a;
+                        vc[j] = 2 * b * rand01() - b;
+                        if (r < p)
+                        {
+                            FIT_DATA_TYPE step = vb[j] * (W[i][j] * x[A][j] - x[B][j]) * 0.1;
+                            FIT_DATA_TYPE newv = bestPositions[j] + step;
+                            newv += ((FIT_DATA_TYPE)rand01() * 2.0 - 1.0) * 1e-3;
+                            if (newv < 0) newv = 0; else if (newv > (DIM - 1)) newv = (DIM - 1);
+                            x[i][j] = newv;
+                        }
+                        else
+                        {
+                            FIT_DATA_TYPE newv = x[i][j] + vc[j] * x[i][j] * 0.05;
+                            newv += ((FIT_DATA_TYPE)rand01() * 2.0 - 1.0) * 1e-3;
+                            if (newv < 0) newv = 0; else if (newv > (DIM - 1)) newv = (DIM - 1);
+                            x[i][j] = newv;
+                        }
+                    }
+                    free(vb);
+                    free(vc);
+                }
+
+                // 立即评估新位置的可行性
+                FIT_DATA_TYPE newFitness = TSPTW(x[i], DIM, speed, data);
+                // 若新位置不可行且旧位置可行，则回退（保持可行解）
+                if (newFitness == FIT_DATA_TYPE_MAX && oldFitness != FIT_DATA_TYPE_MAX)
+                {
+                    for (int j = 0; j < DIM; j++) x[i][j] = xOld[j];
+                }
+                // 若新旧都不可行，则50%概率注入时间窗启发式
+                else if (newFitness == FIT_DATA_TYPE_MAX && oldFitness == FIT_DATA_TYPE_MAX && rand01() < 0.5)
+                {
+                    if (data && data->size >= DIM)
+                    {
+                        double minEar = 1e18, maxEar = -1e18;
+                        for (int jj = 1; jj < DIM; jj++)
+                        {
+                            if (data->tw[jj].earliest < minEar) minEar = data->tw[jj].earliest;
+                            if (data->tw[jj].earliest > maxEar) maxEar = data->tw[jj].earliest;
+                        }
+                        x[i][0] = 0;
+                        for (int jj = 1; jj < DIM; jj++)
+                            x[i][jj] = normalize_range(data->tw[jj].earliest, minEar, maxEar, DIM) + 1e-6 * jj;
+                    }
+                }
+
+                free(xOld);
+            }
+        }
+
+        // 重新评估
+        for (int i = 0; i < pop; i++)
+        {
+            fit[i].fitness = TSPTW(x[i], DIM, speed, data);
+            if (fit[i].fitness < destinationFitness)
+            {
+                destinationFitness = fit[i].fitness;
+                for (int j = 0; j < DIM; j++)
+                {
+                    bestPositions[j] = x[i][j];
+                }
+                lastImprovementIter = t;
+            }
+        }
+        convergenceCurve[t - 1] = destinationFitness;
+
+        // 提前停止检查
+        if (expectedMakespan > 0)
+        {
+            FIT_DATA_TYPE *tempRoute = buildRouteFromKeys(bestPositions, DIM);
+            if (tempRoute && data != NULL && DIM > 0)
+            {
+                FIT_DATA_TYPE currentTime = 0.0;
+                FIT_DATA_TYPE speedVal = (speed <= 0) ? 1.0 : (FIT_DATA_TYPE)speed;
+                FIT_DATA_TYPE startTime = data->tw[0].earliest;
+                if (currentTime < startTime) currentTime = startTime;
+
+                for (int i = 0; i < DIM; i++)
+                {
+                    int from = (int)tempRoute[i];
+                    int to = (int)tempRoute[i + 1];
+                    FIT_DATA_TYPE distance = data->dist[from][to];
+                    FIT_DATA_TYPE travelTime = distance / speedVal;
+                    currentTime += travelTime;
+
+                    if (i < DIM - 1)
+                    {
+                        startTime = data->tw[to].earliest;
+                        if (currentTime < startTime) currentTime = startTime;
+                    }
+                }
+
+                if (currentTime <= expectedMakespan)
+                {
+                    earlyStopTriggered = 1;
+                    printf("Early stop triggered! Current makespan %.0f <= Expected %.0f at iteration %d\n",
+                           currentTime, expectedMakespan, t);
+                    free(tempRoute);
+                    break;
+                }
+            }
+            if (tempRoute) free(tempRoute);
+        }
+
+        if (t - lastImprovementIter >= patience)
+        {
+            int startIdx = (int)(pop * 0.7);
+            if (startIdx < 1) startIdx = 1;
+            for (int i = startIdx; i < pop; ++i)
+            {
+                for (int j = 0; j < DIM; ++j)
+                {
+                    x[i][j] = (FIT_DATA_TYPE)rand01() * (DIM - 1) + 1e-6 * j;
+                }
+            }
+            if (data && data->size >= DIM)
+            {
+                double minEar = 1e18, maxEar = -1e18;
+                for (int j = 1; j < DIM; j++)
+                {
+                    if (data->tw[j].earliest < minEar) minEar = data->tw[j].earliest;
+                    if (data->tw[j].earliest > maxEar) maxEar = data->tw[j].earliest;
+                }
+                for (int i = startIdx; i < pop; i += 2)
+                {
+                    x[i][0] = 0;
+                    for (int j = 1; j < DIM; j++)
+                        x[i][j] = normalize_range(data->tw[j].earliest, minEar, maxEar, DIM) + 1e-6 * j;
+                }
+            }
+            boostCounter = 50;
+            lastImprovementIter = t;
+        }
+
+        int perturbStart = (int)(pop * 0.6);
+        if (perturbStart < 1) perturbStart = 1;
+        for (int i = perturbStart; i < pop; ++i)
+        {
+            if (rand01() < 0.2)
+            {
+                smallKeySwaps(x[i], DIM, 2);
+            }
+        }
+
+        t += 1;
+    }
+
+    endClock = clock();
+    double elapsed_ms = (double)(endClock - startClock) * 1000.0 / (double)CLOCKS_PER_SEC;
+
+    FIT_DATA_TYPE finalActualDistance = 0.0;
+    {
+        xData *order = (xData *)malloc((DIM - 1) * sizeof(xData));
+        int k = 0;
+        for (int i = 1; i < DIM; i++)
+        {
+            order[k].xIndex = i;
+            order[k].data = bestPositions[i];
+            k++;
+        }
+        order = sortX(order, DIM - 1);
+
+        // 计算总距离
+        // 仓库 -> 第一个客户
+        if (DIM > 1)
+        {
+            int first = order[0].xIndex;
+            finalActualDistance += data->dist[0][first];
+        }
+        // 客户之间
+        for (int i = 0; i < DIM - 2; i++)
+        {
+            int from = order[i].xIndex;
+            int to = order[i + 1].xIndex;
+            finalActualDistance += data->dist[from][to];
+        }
+        // 最后一个客户 -> 仓库
+        if (DIM > 1)
+        {
+            int last = order[DIM - 2].xIndex;
+            finalActualDistance += data->dist[last][0];
+        }
+
+        free(order);
+    }
+
+    // 计算makespan
+    FIT_DATA_TYPE finalMakespan = 0.0;
+    FIT_DATA_TYPE *route = buildRouteFromKeys(bestPositions, DIM);
+    if (route && data != NULL && DIM > 0)
+    {
+        FIT_DATA_TYPE currentTime = 0.0;
+        FIT_DATA_TYPE speedVal = (speed <= 0) ? 1.0 : (FIT_DATA_TYPE)speed;
+        FIT_DATA_TYPE startTime = data->tw[0].earliest;
+        if (currentTime < startTime) currentTime = startTime;
+
+        for (int i = 0; i < DIM; i++)
+        {
+            int from = (int)route[i];
+            int to = (int)route[i + 1];
+            FIT_DATA_TYPE distance = data->dist[from][to];
+            FIT_DATA_TYPE travelTime = distance / speedVal;
+            currentTime += travelTime;
+
+            if (i < DIM - 1)
+            {
+                startTime = data->tw[to].earliest;
+                if (currentTime < startTime) currentTime = startTime;
+            }
+        }
+
+        finalMakespan = currentTime;
+    }
+
+    if (earlyStopTriggered)
+    {
+        printf("Early stopped after %d iterations (%.2f seconds allowed)\n", t - 1, timeLimitSeconds);
+    }
+    else
+    {
+        printf("Time-limited run: %.2f seconds, %d iterations.\n", timeLimitSeconds, t - 1);
+    }
+    printf("Best fitness: %lf, elapsed time: %.3f ms.\n", destinationFitness, elapsed_ms);
+    printf("Final actual distance: %.2f\n", finalActualDistance);
+    printf("Final makespan: %.2f\n", finalMakespan);
+    if (route)
+    {
+        printf("Route (0->...->0): [");
+        for (int i = 0; i < DIM; i++)
+        {
+            printf("%d, ", (int)route[i]);
+        }
+        printf("%d]\n", (int)route[DIM]);
+        free(route);
+    }
+
+    // 清理和返回结果
+    for (int i = 0; i < pop; i++)
+    {
+        free(x[i]);
+        free(W[i]);
+    }
+
+    convergenceCurve = (FIT_DATA_TYPE *)realloc(convergenceCurve, t * sizeof(FIT_DATA_TYPE));
+
+    SMAResult *result = (SMAResult *)malloc(sizeof(SMAResult));
+    result->pop = pop;
+    result->dimension = DIM;
+    result->iterationATime = t - 1;
+    result->destinationFitness = destinationFitness;
+    result->bestPositions = bestPositions;
+    result->bestPositionsStart = bestPositionsStart;
+    result->convergenceCurve = convergenceCurve;
+    result->finalDistance = finalActualDistance;
+    result->finalMakespan = finalMakespan;
+    result->elapsedTimeMs = elapsed_ms;
+    result->earlyStopTriggered = earlyStopTriggered;
+
+    free(x);
+    free(fit);
+    freeDataMatrix(data);
+    free(W);
+    return result;
 }
 
 /*
-    sortPostionIndex：
-    - 将“优先级键数组”转换为“访问顺序索引数组”，便于打印与验证。
-    - 注意：此处是原地回写，返回的 xi 内容被替换为索引序（0..dim-1 的排列）。
+    SMA_TimeLimited_WithEarlyStop：基于时间限制且支持提前停止的SMA算法
+    - 与 SMA_TimeLimited 相同，但增加了 expectedMakespan 参数
+    - 当算法找到的解的makespan达到或优于expectedMakespan时，提前停止
+    - 如果 expectedMakespan <= 0，则等同于 SMA_TimeLimited（不提前停止）
 */
-FIT_DATA_TYPE *sortPostionIndex(FIT_DATA_TYPE *xi, int dim)
+SMAResult* SMA_TimeLimited_WithEarlyStop(int pop, int DIM, const FIT_DATA_TYPE *lb, const FIT_DATA_TYPE *ub, const char *dataPath, int speed, double timeLimitSeconds, double expectedMakespan)
 {
-    if (dim <= 0)
+    // 直接调用 SMA_TimeLimited，但先临时修改其内部逻辑
+    // 为了避免代码重复，我们可以简单地调用 SMA_TimeLimited
+    // 但实际上 SMA_TimeLimited 已经包含了早停逻辑（通过内部变量）
+    // 所以我们需要创建一个新的实现，或者修改 SMA_TimeLimited
+
+    // 这里采用完整实现的方式
+    FIT_DATA_TYPE **x = initialization(pop, DIM);
+    fitnessData *fit;
+    FIT_DATA_TYPE *bestPositions;
+    FIT_DATA_TYPE *bestPositionsStart;
+    FIT_DATA_TYPE destinationFitness = FIT_DATA_TYPE_MAX;
+    FIT_DATA_TYPE **W;
+    FIT_DATA_TYPE bestFitness;
+    clock_t startClock, endClock;
+    dataMatrix *data = readMatrix((char*)dataPath);
+
+    int earlyStopTriggered = 0;
+
+    fit = (fitnessData *)malloc(pop * sizeof(fitnessData));
+    int maxIterations = 100000;
+    FIT_DATA_TYPE *convergenceCurve = (FIT_DATA_TYPE *)malloc(maxIterations * sizeof(FIT_DATA_TYPE));
+
+    W = (FIT_DATA_TYPE **)malloc(pop * sizeof(FIT_DATA_TYPE *));
+    bestPositions = (FIT_DATA_TYPE *)malloc(DIM * sizeof(FIT_DATA_TYPE));
+    bestPositionsStart = (FIT_DATA_TYPE *)malloc(DIM * sizeof(FIT_DATA_TYPE));
+    for (int i = 0; i < pop; i++)
     {
-        return NULL;
+        W[i] = (FIT_DATA_TYPE *)malloc(DIM * sizeof(FIT_DATA_TYPE));
     }
-    xData *order = (xData *)malloc(dim * sizeof(xData));
-    for (int i = 0; i < dim; i++)
+
+    // 时间窗启发式初始化
+    if (data && data->size >= DIM)
     {
-        order[i].xIndex = i;
-        order[i].data = xi[i];
+        double minEar = 1e18, maxEar = -1e18;
+        double minLat = 1e18, maxLat = data->tw[1].latest;
+        for (int j = 1; j < DIM; j++)
+        {
+            if (data->tw[j].earliest < minEar) minEar = data->tw[j].earliest;
+            if (data->tw[j].earliest > maxEar) maxEar = data->tw[j].earliest;
+            if (data->tw[j].latest < minLat) minLat = data->tw[j].latest;
+            if (data->tw[j].latest > maxLat) maxLat = data->tw[j].latest;
+        }
+        for (int j = 0; j < DIM; j++) x[0][j] = 0;
+        for (int j = 1; j < DIM; j++)
+            x[0][j] = normalize_range(data->tw[j].earliest, minEar, maxEar, DIM) + 1e-6 * j;
+        if (pop > 1)
+        {
+            for (int j = 0; j < DIM; j++) x[1][j] = 0;
+            for (int j = 1; j < DIM; j++)
+                x[1][j] = normalize_range(data->tw[j].latest, minLat, maxLat, DIM) + 1e-6 * j;
+        }
+        if (pop > 2)
+        {
+            for (int j = 0; j < DIM; j++) x[2][j] = 0;
+            for (int j = 1; j < DIM; j++)
+            {
+                double mid = 0.5 * (data->tw[j].earliest + data->tw[j].latest);
+                x[2][j] = normalize_range(mid, minEar, maxEar, DIM) + 1e-6 * j;
+            }
+        }
     }
-    order = sortX(order, dim);
-    for (int i = 0; i < dim; i++)
+
+    // 初始评估
+    for (int i = 0; i < pop; i++)
     {
-        xi[i] = order[i].xIndex;
+        fit[i].popIndex = i;
+        fit[i].fitness = TSPTW(x[i], DIM, speed, data);
+        if (fit[i].fitness < destinationFitness)
+        {
+            destinationFitness = fit[i].fitness;
+            for (int j = 0; j < DIM; j++)
+            {
+                bestPositions[j] = x[fit[i].popIndex][j];
+                bestPositionsStart[j] = x[fit[i].popIndex][j];
+            }
+        }
     }
-    free(order);
-    return xi;
+
+    int t = 1;
+    startClock = clock();
+    double timeLimitClocks = timeLimitSeconds * CLOCKS_PER_SEC;
+
+    int lastImprovementIter = 0;
+    int patience = 100;
+    int boostCounter = 0;
+    const double zBase = Z;
+
+    // 主循环
+    while (1)
+    {
+        clock_t currentClock = clock();
+        if ((currentClock - startClock) >= timeLimitClocks)
+        {
+            break;
+        }
+
+        if (t > maxIterations)
+        {
+            maxIterations *= 2;
+            convergenceCurve = (FIT_DATA_TYPE *)realloc(convergenceCurve, maxIterations * sizeof(FIT_DATA_TYPE));
+        }
+
+        fit = sortFitness(fit, pop);
+        x = sortIndex(x, fit, pop);
+        for (int i = 0; i < pop; ++i) {
+            fit[i].popIndex = i;
+        }
+        bestFitness = fit[0].fitness;
+        FIT_DATA_TYPE worstFitness = fit[pop - 1].fitness;
+
+        int skipUpdate = 0;
+        if (bestFitness == FIT_DATA_TYPE_MAX)
+        {
+            // 全体不可行，重采样
+            for (int i = 0; i < pop; i++)
+            {
+                for (int j = 0; j < DIM; j++)
+                {
+                    x[i][j] = (FIT_DATA_TYPE)rand01() * (DIM - 1) + 1e-6 * j;
+                }
+            }
+            if (data && data->size >= DIM)
+            {
+                double minEar = 1e18, maxEar = -1e18;
+                for (int j = 1; j < DIM; j++)
+                {
+                    if (data->tw[j].earliest < minEar) minEar = data->tw[j].earliest;
+                    if (data->tw[j].earliest > maxEar) maxEar = data->tw[j].earliest;
+                }
+                for (int i = 0; i < pop/2; i++)
+                {
+                    x[i][0] = 0;
+                    for (int j = 1; j < DIM; j++)
+                        x[i][j] = normalize_range(data->tw[j].earliest, minEar, maxEar, DIM) + 1e-6 * j;
+                }
+            }
+            skipUpdate = 1;
+        }
+
+        if (!skipUpdate)
+        {
+            FIT_DATA_TYPE S = (worstFitness - bestFitness) + 1e-8;
+            if (S < 1e-12) S = 1e-12;
+
+            for (int i = 0; i < pop; i++)
+            {
+                for (int j = 0; j < DIM; j++)
+                {
+                    if (fit[i].fitness == FIT_DATA_TYPE_MAX)
+                    {
+                        W[i][j] = 0.0;
+                        continue;
+                    }
+                    FIT_DATA_TYPE numer = (fit[i].fitness - bestFitness);
+                    if (numer < 0) numer = 0;
+                    FIT_DATA_TYPE frac = numer / S;
+                    if (i < pop / 2)
+                    {
+                        W[i][j] = 1 + rand01() * log10(frac + 1.0);
+                    }
+                    else
+                    {
+                        W[i][j] = 1 - rand01() * log10(frac + 1.0);
+                    }
+                }
+            }
+
+            double timeProgress = (double)(currentClock - startClock) / timeLimitClocks;
+            FIT_DATA_TYPE tt = -(FIT_DATA_TYPE)timeProgress + 1;
+            FIT_DATA_TYPE a, b;
+            if (tt > -1 && tt < 1)
+            {
+                a = atanh(tt);
+            }
+            else
+            {
+                a = 1;
+            }
+            b = 1 - (FIT_DATA_TYPE)timeProgress;
+            if (b < 1e-3) b = 1e-3;
+
+            double zNow = zBase;
+            if (boostCounter > 0)
+            {
+                double zBoost = zBase * 5.0;
+                if (zBoost > 0.3) zBoost = 0.3;
+                zNow = zBoost;
+                boostCounter--;
+            }
+
+            for (int i = 0; i < pop; i++)
+            {
+                FIT_DATA_TYPE *xOld = (FIT_DATA_TYPE *)malloc(DIM * sizeof(FIT_DATA_TYPE));
+                for (int j = 0; j < DIM; j++) xOld[j] = x[i][j];
+                FIT_DATA_TYPE oldFitness = fit[i].fitness;
+
+                double explorationProb = (zNow > 0.1) ? zNow : 0.1;
+                if (rand01() < explorationProb)
+                {
+                    for (int j = 0; j < DIM; j++)
+                    {
+                        FIT_DATA_TYPE newv = (FIT_DATA_TYPE)rand01() * (DIM - 1) + 1e-6 * j;
+                        newv += ((FIT_DATA_TYPE)rand01() * 2.0 - 1.0) * 1e-3;
+                        if (newv < 0) newv = 0; else if (newv > (DIM - 1)) newv = (DIM - 1);
+                        x[i][j] = newv;
+                    }
+                }
+                else
+                {
+                    FIT_DATA_TYPE p = tanh(fabs(fit[i].fitness - destinationFitness));
+                    FIT_DATA_TYPE *vb = (FIT_DATA_TYPE *)malloc(DIM * sizeof(FIT_DATA_TYPE));
+                    FIT_DATA_TYPE *vc = (FIT_DATA_TYPE *)malloc(DIM * sizeof(FIT_DATA_TYPE));
+                    for (int j = 0; j < DIM; j++)
+                    {
+                        FIT_DATA_TYPE r = rand01();
+                        int A, B;
+                        if (rand01() < 0.7) {
+                            A = rand() % (pop / 2 ? pop / 2 : 1);
+                            B = (pop / 2) + (rand() % (pop - (pop / 2) ? (pop - (pop / 2)) : 1));
+                        } else {
+                            A = rand() % pop;
+                            B = rand() % pop;
+                        }
+                        if (A == B) B = (B + 1) % pop;
+                        vb[j] = 2 * a * rand01() - a;
+                        vc[j] = 2 * b * rand01() - b;
+                        if (r < p)
+                        {
+                            FIT_DATA_TYPE step = vb[j] * (W[i][j] * x[A][j] - x[B][j]) * 0.1;
+                            FIT_DATA_TYPE newv = bestPositions[j] + step;
+                            newv += ((FIT_DATA_TYPE)rand01() * 2.0 - 1.0) * 1e-3;
+                            if (newv < 0) newv = 0; else if (newv > (DIM - 1)) newv = (DIM - 1);
+                            x[i][j] = newv;
+                        }
+                        else
+                        {
+                            FIT_DATA_TYPE newv = x[i][j] + vc[j] * x[i][j] * 0.05;
+                            newv += ((FIT_DATA_TYPE)rand01() * 2.0 - 1.0) * 1e-3;
+                            if (newv < 0) newv = 0; else if (newv > (DIM - 1)) newv = (DIM - 1);
+                            x[i][j] = newv;
+                        }
+                    }
+                    free(vb);
+                    free(vc);
+                }
+
+                // 立即评估新位置的可行性
+                FIT_DATA_TYPE newFitness = TSPTW(x[i], DIM, speed, data);
+                // 若新位置不可行且旧位置可行，则回退（保持可行解）
+                if (newFitness == FIT_DATA_TYPE_MAX && oldFitness != FIT_DATA_TYPE_MAX)
+                {
+                    for (int j = 0; j < DIM; j++) x[i][j] = xOld[j];
+                }
+                // 若新旧都不可行，则50%概率注入时间窗启发式
+                else if (newFitness == FIT_DATA_TYPE_MAX && oldFitness == FIT_DATA_TYPE_MAX && rand01() < 0.5)
+                {
+                    if (data && data->size >= DIM)
+                    {
+                        double minEar = 1e18, maxEar = -1e18;
+                        for (int jj = 1; jj < DIM; jj++)
+                        {
+                            if (data->tw[jj].earliest < minEar) minEar = data->tw[jj].earliest;
+                            if (data->tw[jj].earliest > maxEar) maxEar = data->tw[jj].earliest;
+                        }
+                        x[i][0] = 0;
+                        for (int jj = 1; jj < DIM; jj++)
+                            x[i][jj] = normalize_range(data->tw[jj].earliest, minEar, maxEar, DIM) + 1e-6 * jj;
+                    }
+                }
+
+                free(xOld);
+            }
+        }
+
+        // 重新评估
+        for (int i = 0; i < pop; i++)
+        {
+            fit[i].fitness = TSPTW(x[i], DIM, speed, data);
+            if (fit[i].fitness < destinationFitness)
+            {
+                destinationFitness = fit[i].fitness;
+                for (int j = 0; j < DIM; j++)
+                {
+                    bestPositions[j] = x[i][j];
+                }
+                lastImprovementIter = t;
+            }
+        }
+        convergenceCurve[t - 1] = destinationFitness;
+
+        // 提前停止检查
+        if (expectedMakespan > 0)
+        {
+            FIT_DATA_TYPE *tempRoute = buildRouteFromKeys(bestPositions, DIM);
+            if (tempRoute && data != NULL && DIM > 0)
+            {
+                FIT_DATA_TYPE currentTime = 0.0;
+                FIT_DATA_TYPE speedVal = (speed <= 0) ? 1.0 : (FIT_DATA_TYPE)speed;
+                FIT_DATA_TYPE startTime = data->tw[0].earliest;
+                if (currentTime < startTime) currentTime = startTime;
+
+                for (int i = 0; i < DIM; i++)
+                {
+                    int from = (int)tempRoute[i];
+                    int to = (int)tempRoute[i + 1];
+                    FIT_DATA_TYPE distance = data->dist[from][to];
+                    FIT_DATA_TYPE travelTime = distance / speedVal;
+                    currentTime += travelTime;
+
+                    if (i < DIM - 1)
+                    {
+                        startTime = data->tw[to].earliest;
+                        if (currentTime < startTime) currentTime = startTime;
+                    }
+                }
+
+                if (currentTime <= expectedMakespan)
+                {
+                    earlyStopTriggered = 1;
+                    printf("Early stop triggered! Current makespan %.0f <= Expected %.0f at iteration %d\n",
+                           currentTime, expectedMakespan, t);
+                    free(tempRoute);
+                    break;
+                }
+            }
+            if (tempRoute) free(tempRoute);
+        }
+
+        if (t - lastImprovementIter >= patience)
+        {
+            int startIdx = (int)(pop * 0.7);
+            if (startIdx < 1) startIdx = 1;
+            for (int i = startIdx; i < pop; ++i)
+            {
+                for (int j = 0; j < DIM; ++j)
+                {
+                    x[i][j] = (FIT_DATA_TYPE)rand01() * (DIM - 1) + 1e-6 * j;
+                }
+            }
+            if (data && data->size >= DIM)
+            {
+                double minEar = 1e18, maxEar = -1e18;
+                for (int j = 1; j < DIM; j++)
+                {
+                    if (data->tw[j].earliest < minEar) minEar = data->tw[j].earliest;
+                    if (data->tw[j].earliest > maxEar) maxEar = data->tw[j].earliest;
+                }
+                for (int i = startIdx; i < pop; i += 2)
+                {
+                    x[i][0] = 0;
+                    for (int j = 1; j < DIM; j++)
+                        x[i][j] = normalize_range(data->tw[j].earliest, minEar, maxEar, DIM) + 1e-6 * j;
+                }
+            }
+            boostCounter = 50;
+            lastImprovementIter = t;
+        }
+
+        int perturbStart = (int)(pop * 0.6);
+        if (perturbStart < 1) perturbStart = 1;
+        for (int i = perturbStart; i < pop; ++i)
+        {
+            if (rand01() < 0.2)
+            {
+                smallKeySwaps(x[i], DIM, 2);
+            }
+        }
+
+        t += 1;
+    }
+
+    endClock = clock();
+    double elapsed_ms = (double)(endClock - startClock) * 1000.0 / (double)CLOCKS_PER_SEC;
+
+    FIT_DATA_TYPE finalActualDistance = 0.0;
+    {
+        xData *order = (xData *)malloc((DIM - 1) * sizeof(xData));
+        int k = 0;
+        for (int i = 1; i < DIM; i++)
+        {
+            order[k].xIndex = i;
+            order[k].data = bestPositions[i];
+            k++;
+        }
+        order = sortX(order, DIM - 1);
+
+        // 计算总距离
+        // 仓库 -> 第一个客户
+        if (DIM > 1)
+        {
+            int first = order[0].xIndex;
+            finalActualDistance += data->dist[0][first];
+        }
+        // 客户之间
+        for (int i = 0; i < DIM - 2; i++)
+        {
+            int from = order[i].xIndex;
+            int to = order[i + 1].xIndex;
+            finalActualDistance += data->dist[from][to];
+        }
+        // 最后一个客户 -> 仓库
+        if (DIM > 1)
+        {
+            int last = order[DIM - 2].xIndex;
+            finalActualDistance += data->dist[last][0];
+        }
+
+        free(order);
+    }
+
+    // 计算makespan
+    FIT_DATA_TYPE finalMakespan = 0.0;
+    FIT_DATA_TYPE *route = buildRouteFromKeys(bestPositions, DIM);
+    if (route && data != NULL && DIM > 0)
+    {
+        FIT_DATA_TYPE currentTime = 0.0;
+        FIT_DATA_TYPE speedVal = (speed <= 0) ? 1.0 : (FIT_DATA_TYPE)speed;
+        FIT_DATA_TYPE startTime = data->tw[0].earliest;
+        if (currentTime < startTime) currentTime = startTime;
+
+        for (int i = 0; i < DIM; i++)
+        {
+            int from = (int)route[i];
+            int to = (int)route[i + 1];
+            FIT_DATA_TYPE distance = data->dist[from][to];
+            FIT_DATA_TYPE travelTime = distance / speedVal;
+            currentTime += travelTime;
+
+            if (i < DIM - 1)
+            {
+                startTime = data->tw[to].earliest;
+                if (currentTime < startTime) currentTime = startTime;
+            }
+        }
+
+        finalMakespan = currentTime;
+    }
+
+    if (earlyStopTriggered)
+    {
+        printf("Early stopped after %d iterations (%.2f seconds allowed)\n", t - 1, timeLimitSeconds);
+    }
+    else
+    {
+        printf("Time-limited run: %.2f seconds, %d iterations.\n", timeLimitSeconds, t - 1);
+    }
+    printf("Best fitness: %lf, elapsed time: %.3f ms.\n", destinationFitness, elapsed_ms);
+    printf("Final actual distance: %.2f\n", finalActualDistance);
+    printf("Final makespan: %.2f\n", finalMakespan);
+    if (route)
+    {
+        printf("Route (0->...->0): [");
+        for (int i = 0; i < DIM; i++)
+        {
+            printf("%d, ", (int)route[i]);
+        }
+        printf("%d]\n", (int)route[DIM]);
+        free(route);
+    }
+
+    for (int i = 0; i < pop; i++)
+    {
+        free(x[i]);
+        free(W[i]);
+    }
+
+    convergenceCurve = (FIT_DATA_TYPE *)realloc(convergenceCurve, t * sizeof(FIT_DATA_TYPE));
+
+    SMAResult *result = (SMAResult *)malloc(sizeof(SMAResult));
+    result->pop = pop;
+    result->dimension = DIM;
+    result->iterationATime = t - 1;
+    result->destinationFitness = destinationFitness;
+    result->bestPositions = bestPositions;
+    result->bestPositionsStart = bestPositionsStart;
+    result->convergenceCurve = convergenceCurve;
+    result->finalDistance = finalActualDistance;
+    result->finalMakespan = finalMakespan;
+    result->elapsedTimeMs = elapsed_ms;
+    result->earlyStopTriggered = earlyStopTriggered;
+
+    free(x);
+    free(fit);
+    freeDataMatrix(data);
+    free(W);
+    return result;
 }
+
