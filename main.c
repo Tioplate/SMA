@@ -12,7 +12,7 @@
 #endif
 
 // 保持种群规模与速度常量
-#define POP 50
+#define POP 200
 #define SPEED 1
 
 // 读取数据文件第一行的维度（节点数）
@@ -124,25 +124,17 @@ int main()
             // Extract dataset base name and find time limit
             char basename[256];
             extractBaseName(filename, basename, sizeof(basename));
-            double timeLimit = get_time_limit_for_dataset(basename);
 
-            if (timeLimit < 0)
-            {
-                // Time limit not found, use default value
-                timeLimit = DIM * 0.1; // Default: 0.1 seconds per node
-                printf("  Time limit not found in config, using default: %.2f seconds\n", timeLimit);
-            }
-            else
-            {
-                printf("  Time limit: %.2f seconds\n", timeLimit);
-            }
+            // 固定使用60秒（1分钟）时间限制
+            double timeLimit = 60.0; // 固定1分钟
+            printf("  Time limit: %.2f seconds (fixed)\n", timeLimit);
 
-            // Find expected Makespan result
-            double expectedMakespan = get_expected_makespan(basename);
-            if (expectedMakespan > 0)
-            {
-                printf("  Expected Makespan: %.2f (early stop when reached)\n", expectedMakespan);
-            }
+            // 不再使用早停机制
+            // double expectedMakespan = get_expected_makespan(basename);
+            // if (expectedMakespan > 0)
+            // {
+            //     printf("  Expected Makespan: %.2f (early stop when reached)\n", expectedMakespan);
+            // }
 
             // Dynamically allocate lower and upper bounds
             FIT_DATA_TYPE *lb = (FIT_DATA_TYPE *)malloc(DIM * sizeof(FIT_DATA_TYPE));
@@ -163,7 +155,7 @@ int main()
             }
 
             // Use SMA algorithm with early stop support
-            SMAResult *result = SMA_TimeLimited_WithEarlyStop(POP, DIM, lb, ub, fullPath, SPEED, timeLimit, expectedMakespan);
+            SMAResult *result = SMA_TimeLimited(POP, DIM, lb, ub, fullPath, SPEED, timeLimit);
 
             if (result)
             {
@@ -176,12 +168,11 @@ int main()
                         result->elapsedTimeMs,    // 运行时间（毫秒）
                         timeLimit,                 // 时间限制（秒）
                         result->iterationATime,    // 实际迭代次数
-                        result->earlyStopTriggered ? "EARLY_STOP" : "TIME_LIMIT");  // 停止原因
+                        "TIME_LIMIT");  // 停止原因
 
-                printf("  Distance: %.2f, Makespan: %.2f, Fitness: %.6f, Iterations: %d%s\n",
+                printf("  Distance: %.2f, Makespan: %.2f, Fitness: %.6f, Iterations: %d\n",
                        result->finalDistance, result->finalMakespan,
-                       result->destinationFitness, result->iterationATime,
-                       result->earlyStopTriggered ? " [EARLY STOP]" : "");
+                       result->destinationFitness, result->iterationATime);
 
                 // 释放结果
                 free(result->bestPositions);
@@ -243,25 +234,17 @@ int main()
         // Extract dataset base name and find time limit
         char basename[256];
         extractBaseName(entry->d_name, basename, sizeof(basename));
-        double timeLimit = get_time_limit_for_dataset(basename);
 
-        if (timeLimit < 0)
-        {
-            // Time limit not found, use default value
-            timeLimit = DIM * 0.1; // Default: 0.1 seconds per node
-            printf("  Time limit not found in config, using default: %.2f seconds\n", timeLimit);
-        }
-        else
-        {
-            printf("  Time limit: %.2f seconds\n", timeLimit);
-        }
+        // 固定使用60秒（1分钟）时间限制
+        double timeLimit = 60.0; // 固定1分钟
+        printf("  Time limit: %.2f seconds (fixed)\n", timeLimit);
 
-        // Find expected Makespan result
-        double expectedMakespan = get_expected_makespan(basename);
-        if (expectedMakespan > 0)
-        {
-            printf("  Expected Makespan: %.2f (early stop when reached)\n", expectedMakespan);
-        }
+        // 不再使用早停机制
+        // double expectedMakespan = get_expected_makespan(basename);
+        // if (expectedMakespan > 0)
+        // {
+        //     printf("  Expected Makespan: %.2f (early stop when reached)\n", expectedMakespan);
+        // }
 
         // Dynamically allocate lower and upper bounds
         FIT_DATA_TYPE *lb = (FIT_DATA_TYPE *)malloc(DIM * sizeof(FIT_DATA_TYPE));
@@ -282,7 +265,7 @@ int main()
         }
 
         // Use SMA algorithm with early stop support
-        SMAResult *result = SMA_TimeLimited_WithEarlyStop(POP, DIM, lb, ub, fullPath, SPEED, timeLimit, expectedMakespan);
+        SMAResult *result = SMA_TimeLimited(POP, DIM, lb, ub, fullPath, SPEED, timeLimit);
 
         if (result)
         {
@@ -295,12 +278,11 @@ int main()
                     result->elapsedTimeMs,    // 运行时间（毫秒）
                     timeLimit,                 // 时间限制（秒）
                     result->iterationATime,    // 实际迭代次数
-                    result->earlyStopTriggered ? "EARLY_STOP" : "TIME_LIMIT");  // 停止原因
+                    "TIME_LIMIT");  // 停止原因
 
-            printf("  Distance: %.2f, Makespan: %.2f, Fitness: %.6f, Iterations: %d%s\n",
+            printf("  Distance: %.2f, Makespan: %.2f, Fitness: %.6f, Iterations: %d\n",
                    result->finalDistance, result->finalMakespan,
-                   result->destinationFitness, result->iterationATime,
-                   result->earlyStopTriggered ? " [EARLY STOP]" : "");
+                   result->destinationFitness, result->iterationATime);
 
             // 释放结果
             free(result->bestPositions);
