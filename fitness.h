@@ -46,6 +46,10 @@ FIT_DATA_TYPE F1(FIT_DATA_TYPE *x, int dim);
 FIT_DATA_TYPE TSP(FIT_DATA_TYPE *x, int dim);
 // TSPTW：带时间窗的 TSP（硬约束），speed 为行驶速度，routeData 提供距离矩阵与时间窗
 FIT_DATA_TYPE TSPTW(FIT_DATA_TYPE *x, int dim, FIT_DATA_TYPE speed, dataMatrix *routeData);
+// TSPTW：带修复机制的 TSPTW，如果解严重不可行会尝试贪心修复
+FIT_DATA_TYPE TSPTW_WithRepair(FIT_DATA_TYPE *x, int dim, FIT_DATA_TYPE speed, dataMatrix *routeData);
+// repairSolutionGreedy：贪心修复函数，按时间窗最早时间重新排序客户
+void repairSolutionGreedy(FIT_DATA_TYPE *x, int dim, dataMatrix *routeData, FIT_DATA_TYPE speed);
 // sortX：对 xData 数组按 data 升序排序，返回传入指针（原地排序）
 xData *sortX(xData *order, int dim);
 // adjustPostion：示例函数，对每个个体的维度做排序演示（当前不改变原 x，返回原指针）

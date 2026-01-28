@@ -364,11 +364,18 @@ SMABeamResult* SMA_Beam_TimeLimited_WithEarlyStop(
         }
     }
 
-    // 初始评估
+    // 初始评估（带强制修复）
     for (int i = 0; i < pop; i++)
     {
         fit[i].popIndex = i;
         fit[i].fitness = TSPTW(x[i], DIM, speed, data);
+
+        // 如果严重不可行，立即修复
+        if (fit[i].fitness > 10000.0 && data != NULL)
+        {
+            repairSolutionGreedy(x[i], DIM, data, speed);
+            fit[i].fitness = TSPTW(x[i], DIM, speed, data);
+        }
 
         if (fit[i].fitness < destinationFitness)
         {
@@ -558,6 +565,26 @@ SMABeamResult* SMA_Beam_TimeLimited_WithEarlyStop(
                 memcpy(bestPositions, x[i], DIM * sizeof(FIT_DATA_TYPE));
                 lastImprovementIter = t;
             }
+        }
+
+        // 每1000次迭代，强制修复最差的30%个体（防止陷入不可行区域）
+        if (t % 1000 == 0 && data != NULL)
+        {
+            int repairCount = pop * 3 / 10; // 修复30%
+            for (int i = pop - repairCount; i < pop; i++)
+            {
+                if (fit[i].fitness > 10000.0)
+                {
+                    repairSolutionGreedy(x[i], DIM, data, speed);
+                    fit[i].fitness = TSPTW(x[i], DIM, speed, data);
+                }
+            }
+        }
+
+        // 记录收敛曲线
+        if (t - 1 < maxIterations)
+        {
+            convergenceCurve[t - 1] = destinationFitness;
         }
 
         // 停滞重启

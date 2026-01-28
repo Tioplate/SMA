@@ -160,6 +160,72 @@ FIT_DATA_TYPE TSPTW(FIT_DATA_TYPE *x, int dim, FIT_DATA_TYPE speed, dataMatrix *
 }
 
 /*
+    贪心修复函数：按时间窗最早时间重新排序客户
+    用于修复严重违反时间窗约束的解
+*/
+void repairSolutionGreedy(FIT_DATA_TYPE *x, int dim, dataMatrix *routeData, FIT_DATA_TYPE speed)
+{
+    if (!routeData || dim <= 1) return;
+
+    // 创建客户-时间窗映射
+    typedef struct {
+        int customerIdx;
+        FIT_DATA_TYPE earliest;
+    } CustomerTW;
+
+    CustomerTW *customers = (CustomerTW *)malloc((dim - 1) * sizeof(CustomerTW));
+
+    // 收集所有客户及其最早时间窗
+    for (int i = 1; i < dim; i++)
+    {
+        customers[i - 1].customerIdx = i;
+        customers[i - 1].earliest = routeData->tw[i].earliest;
+    }
+
+    // 按最早时间窗排序（贪心策略）
+    for (int i = 0; i < dim - 2; i++)
+    {
+        for (int j = i + 1; j < dim - 1; j++)
+        {
+            if (customers[j].earliest < customers[i].earliest)
+            {
+                CustomerTW temp = customers[i];
+                customers[i] = customers[j];
+                customers[j] = temp;
+            }
+        }
+    }
+
+    // 重新编码为优先级键
+    x[0] = 0; // 仓库
+    for (int i = 0; i < dim - 1; i++)
+    {
+        int custIdx = customers[i].customerIdx;
+        x[custIdx] = (FIT_DATA_TYPE)i + 1e-6 * i;
+    }
+
+    free(customers);
+}
+
+/*
+    TSPTW 带修复版本：如果解严重不可行，先修复再评估
+*/
+FIT_DATA_TYPE TSPTW_WithRepair(FIT_DATA_TYPE *x, int dim, FIT_DATA_TYPE speed, dataMatrix *routeData)
+{
+    // 先评估一次
+    FIT_DATA_TYPE fitness = TSPTW(x, dim, speed, routeData);
+
+    // 如果严重不可行（fitness > 10000 说明有很大惩罚），尝试修复
+    if (fitness > 10000.0 && routeData != NULL)
+    {
+        repairSolutionGreedy(x, dim, routeData, speed);
+        fitness = TSPTW(x, dim, speed, routeData);
+    }
+
+    return fitness;
+}
+
+/*
     排序比较函数：按 data 升序，支持相等键返回 0，保证 qsort 稳定性需求
 */
 int compareFunctionX(const void *a, const void *b)
