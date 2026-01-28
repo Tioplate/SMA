@@ -58,7 +58,7 @@ int main()
 {
     // Use relative path to the dataset folder in project root directory
     // Assuming running from cmake-build-debug/Debug/ directory
-    const char *datasetDir = "../../dataset/SolomonPotvinBengio";
+    const char *datasetDir = "../dataset/SolomonPotvinBengio";
     // Output file in project root directory (two levels up from Debug folder)
     const char *outputFile = "results_run.csv";
 

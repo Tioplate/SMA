@@ -1,5 +1,7 @@
 #include "fitness.h"
 
+#include <string.h>
+
 /*
     模块：适应度计算（TSP/TSPTW）
     - 本文件实现了示例函数 F1，以及带硬时间窗的 TSPTW 适应度。
@@ -140,26 +142,19 @@ FIT_DATA_TYPE TSPTW(FIT_DATA_TYPE *x, int dim, FIT_DATA_TYPE speed, dataMatrix *
 
     free(order);
 
-    // 适应度 = 总距离 + 100 * 总超时惩罚
-    //FIT_DATA_TYPE fitness = totalDistance + 10.0 * totalOvertime;
+    // 修改：返回makespan（完工时间）而不是距离
+    // makespan = currentTime（返回仓库的时间）
+    // 如果有超时，加上较大的惩罚使其不可行
     FIT_DATA_TYPE fitness;
 
     if (totalOvertime < 1e-6) {
-        // 完全可行解：只考虑距离
-        fitness = totalDistance;
-    } else if (totalOvertime < 10.0) {
-        // 轻微超时：较小惩罚
-        fitness = totalDistance + 2.0 * totalOvertime;
-    } else if (totalOvertime < 50.0) {
-        // 中度超时：中等惩罚
-        fitness = totalDistance + 5.0 * totalOvertime;
+        // 完全可行解：返回makespan（完工时间）
+        fitness = currentTime;
     } else {
-        // 严重超时：较大惩罚（但不是 100 倍）
-        fitness = totalDistance + 10.0 * totalOvertime;
+        // 有超时：返回一个很大的惩罚值表示不可行
+        // 使用currentTime + 大惩罚，这样仍然能区分不同程度的超时
+        fitness = currentTime + 10.0 * totalOvertime;
     }
-
-    // 输出实际距离
-    //printf("distance: %.0f\n", totalDistance);
 
     return fitness;
 }

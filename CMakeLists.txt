@@ -12,8 +12,19 @@ set(SMA_SOURCES
         fitness.c
 )
 
+# 新增：SMA-Beam 混合算法源文件
+set(SMA_BEAM_SOURCES
+        sma.c
+        sma_beam.c
+        readMatrix.c
+        fitness.c
+)
+
 # 可复用的静态库，不与可执行/共享库重名
 add_library(sma_core STATIC ${SMA_SOURCES})
+
+# 新增：SMA-Beam 静态库
+add_library(sma_beam_lib STATIC ${SMA_BEAM_SOURCES})
 
 # JNI 动态库，把 myjni.c 和算法实现一起编进 DLL
 add_library(myjni SHARED
@@ -33,6 +44,12 @@ add_executable(SMA_Back
         ${SMA_SOURCES}
 )
 
+# 新增：SMA-Beam 测试程序
+add_executable(test_sma_beam
+        test_sma_beam.c
+)
+target_link_libraries(test_sma_beam sma_beam_lib)
+
 # 可选：将所有产物输出到构建根目录，便于查找（CLion 默认也在该目录下）
 set_target_properties(SMA_Back PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
@@ -41,6 +58,9 @@ set_target_properties(myjni PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+)
+set_target_properties(test_sma_beam PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 )
 
 # 如需在其他项目中链接，可公开头文件目录

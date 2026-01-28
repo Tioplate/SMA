@@ -1,0 +1,15 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="SMA_Back" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="SMA_Back" TARGET_NAME="SMA_Back" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="SMA_Back" RUN_TARGET_NAME="SMA_Back">
+    <method v="2">
+      <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+    </method>
+  </configuration>
+</component>
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="test_sma_beam" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="SMA_Back" TARGET_NAME="test_sma_beam" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="SMA_Back" RUN_TARGET_NAME="test_sma_beam">
+    <method v="2">
+      <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+    </method>
+  </configuration>
+</component>
+
