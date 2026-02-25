@@ -29,6 +29,9 @@ BeamConfig createAdaptiveBeamConfig(int pop, int dimension)
         config.expansionFactor = 5;
         config.hybridInterval = 20;
         config.eliteRatio = 0.1;
+        config.baseBeamWidth = config.beamWidth;
+        config.minBeamWidth = config.beamWidth / 2;
+        config.maxBeamWidth = config.beamWidth * 3;
     }
     else if (dimension <= 40)
     {
@@ -37,6 +40,9 @@ BeamConfig createAdaptiveBeamConfig(int pop, int dimension)
         config.expansionFactor = 6;
         config.hybridInterval = 15;  // 更频繁的束搜索
         config.eliteRatio = 0.12;
+        config.baseBeamWidth = config.beamWidth;
+        config.minBeamWidth = config.beamWidth / 2;
+        config.maxBeamWidth = config.beamWidth * 3;
     }
     else
     {
@@ -45,10 +51,14 @@ BeamConfig createAdaptiveBeamConfig(int pop, int dimension)
         config.expansionFactor = 8;  // 更多邻域探索
         config.hybridInterval = 10;  // 非常频繁的束搜索
         config.eliteRatio = 0.15;    // 保护更多精英
+        config.baseBeamWidth = config.beamWidth;
+        config.minBeamWidth = config.beamWidth / 2;
+        config.maxBeamWidth = config.beamWidth * 2;
 
         printf("[Adaptive Config] Large-scale problem detected (dim=%d)\n", dimension);
-        printf("  Enhanced: BeamWidth=%d, ExpansionFactor=%d, HybridInterval=%d\n",
-               config.beamWidth, config.expansionFactor, config.hybridInterval);
+        printf("  Enhanced: BeamWidth=%d (range: %d-%d), ExpansionFactor=%d, HybridInterval=%d\n",
+               config.beamWidth, config.minBeamWidth, config.maxBeamWidth,
+               config.expansionFactor, config.hybridInterval);
     }
 
     return config;
@@ -63,29 +73,66 @@ static void generateNeighbor(const FIT_DATA_TYPE *source, FIT_DATA_TYPE *neighbo
         neighbor[i] = source[i];
     }
 
-    // 随机选择2-4个维度进行扰动（跳过仓库0）
-    int numPerturbations = 2 + rand() % 3;
-    for (int p = 0; p < numPerturbations; p++)
-    {
-        int idx = 1 + rand() % (dim - 1);
-        double delta = (rand01() * 2.0 - 1.0) * perturbationStrength * (dim - 1);
-        neighbor[idx] += delta;
+    // 根据扰动强度选择策略
+    double rand_val = rand01();
 
-        // 保持在合理范围内
-        if (neighbor[idx] < 0) neighbor[idx] = rand01() * 0.5;
-        if (neighbor[idx] > dim - 1) neighbor[idx] = (dim - 1) - rand01() * 0.5;
+    if (perturbationStrength < 0.15)
+    {
+        // 小扰动：局部微调（1-3个维度）
+        int numPerturbations = 1 + rand() % 3;
+        for (int p = 0; p < numPerturbations; p++)
+        {
+            int idx = 1 + rand() % (dim - 1);
+            double delta = (rand01() * 2.0 - 1.0) * perturbationStrength * (dim - 1) * 0.5;
+            neighbor[idx] += delta;
+
+            if (neighbor[idx] < 0) neighbor[idx] = rand01() * 0.5;
+            if (neighbor[idx] > dim - 1) neighbor[idx] = (dim - 1) - rand01() * 0.5;
+        }
+    }
+    else if (perturbationStrength < 0.35)
+    {
+        // 中等扰动：区域性调整（2-5个维度）
+        int numPerturbations = 2 + rand() % 4;
+        for (int p = 0; p < numPerturbations; p++)
+        {
+            int idx = 1 + rand() % (dim - 1);
+            double delta = (rand01() * 2.0 - 1.0) * perturbationStrength * (dim - 1);
+            neighbor[idx] += delta;
+
+            if (neighbor[idx] < 0) neighbor[idx] = rand01() * 0.5;
+            if (neighbor[idx] > dim - 1) neighbor[idx] = (dim - 1) - rand01() * 0.5;
+        }
+    }
+    else
+    {
+        // 大扰动：大范围重组（3-6个维度）
+        int numPerturbations = 3 + rand() % 4;
+        for (int p = 0; p < numPerturbations; p++)
+        {
+            int idx = 1 + rand() % (dim - 1);
+            double delta = (rand01() * 2.0 - 1.0) * perturbationStrength * (dim - 1) * 1.5;
+            neighbor[idx] += delta;
+
+            if (neighbor[idx] < 0) neighbor[idx] = rand01() * 0.5;
+            if (neighbor[idx] > dim - 1) neighbor[idx] = (dim - 1) - rand01() * 0.5;
+        }
     }
 
-    // 20% 概率进行键值交换（改变访问顺序）
-    if (rand01() < 0.2)
+    // 30% 概率进行键值交换（改变访问顺序）
+    if (rand01() < 0.3)
     {
-        int i = 1 + rand() % (dim - 1);
-        int j = 1 + rand() % (dim - 1);
-        if (i != j)
+        int numSwaps = 1 + rand() % 2;  // 1-2次交换
+        for (int s = 0; s < numSwaps; s++)
         {
-            FIT_DATA_TYPE tmp = neighbor[i];
-            neighbor[i] = neighbor[j];
-            neighbor[j] = tmp;
+            int i = 1 + rand() % (dim - 1);
+            int j = 1 + rand() % (dim - 1);
+            if (i != j)
+            {
+                FIT_DATA_TYPE tmp = neighbor[i];
+                neighbor[i] = neighbor[j];
+                neighbor[j] = tmp;
+            }
         }
     }
 }
@@ -393,9 +440,15 @@ SMABeamResult* SMA_Beam_TimeLimited_WithEarlyStop(
     int lastImprovementIter = 0;
     const int patience = 50;
 
+    // 新增：停滞检测和自适应参数
+    int stagnationCounter = 0;
+    const int STAGNATION_THRESHOLD = 500;  // 500次迭代未改进视为停滞
+    int currentBeamWidth = beamConfig.beamWidth;
+
     printf("SMA-Beam Hybrid Algorithm Started (Time Limit: %.2f seconds)\n", timeLimitSeconds);
     printf("Beam Width: %d, Expansion Factor: %d, Hybrid Interval: %d\n",
            beamConfig.beamWidth, beamConfig.expansionFactor, beamConfig.hybridInterval);
+    printf("Adaptive Beam Width Range: [%d, %d]\n", beamConfig.minBeamWidth, beamConfig.maxBeamWidth);
 
     // 动态收敛曲线（预估最多记录100000个点，足够60秒运行）
     int maxIterations = 100000;
@@ -433,20 +486,65 @@ SMABeamResult* SMA_Beam_TimeLimited_WithEarlyStop(
         FIT_DATA_TYPE bestFitness = fit[0].fitness;
         FIT_DATA_TYPE worstFitness = fit[pop - 1].fitness;
 
+        // === 自适应Beam宽度调整 ===
+        // 检测是否有改进
+        if (t > 1 && destinationFitness >= convergenceCurve[t - 2] - 1e-6)
+        {
+            stagnationCounter++;
+        }
+        else
+        {
+            stagnationCounter = 0;
+        }
+
+        // 根据停滞情况动态调整beam宽度
+        if (stagnationCounter > 0 && stagnationCounter % 100 == 0)
+        {
+            // 长时间停滞，增加beam宽度以增强探索
+            if (currentBeamWidth < beamConfig.maxBeamWidth)
+            {
+                int increment = (beamConfig.maxBeamWidth - beamConfig.baseBeamWidth) / 5;
+                if (increment < 2) increment = 2;
+                currentBeamWidth += increment;
+                if (currentBeamWidth > beamConfig.maxBeamWidth)
+                    currentBeamWidth = beamConfig.maxBeamWidth;
+
+                printf("[Iter %d] Stagnation detected (%d iters), increasing beam width to %d\n",
+                       t, stagnationCounter, currentBeamWidth);
+            }
+        }
+        else if (stagnationCounter == 0 && t > 100)
+        {
+            // 持续改进，逐渐减小beam宽度以提高效率
+            if (currentBeamWidth > beamConfig.minBeamWidth)
+            {
+                int decrement = 1;
+                if (currentBeamWidth - decrement >= beamConfig.minBeamWidth)
+                {
+                    currentBeamWidth -= decrement;
+                }
+            }
+        }
+
+        // 更新beamConfig的实际宽度
+        BeamConfig adaptiveConfig = beamConfig;
+        adaptiveConfig.beamWidth = currentBeamWidth;
+
         // === 束搜索阶段 ===
         if (t % beamConfig.hybridInterval == 0)
         {
             FIT_DATA_TYPE oldBest = destinationFitness;
             beamSearchPhase(x, fit, bestPositions, pop, DIM, speed, data,
-                           beamConfig, &destinationFitness);
+                           adaptiveConfig, &destinationFitness);
             beamSearchExecutions++;
 
             if (destinationFitness < oldBest)
             {
                 solutionsFromBeam++;
                 lastImprovementIter = t;
-                printf("[Iter %d] Beam Search improved: %.2f -> %.2f\n",
-                       t, oldBest, destinationFitness);
+                stagnationCounter = 0;  // 重置停滞计数器
+                printf("[Iter %d] Beam Search improved: %.2f -> %.2f (BeamWidth=%d)\n",
+                       t, oldBest, destinationFitness, currentBeamWidth);
             }
         }
 

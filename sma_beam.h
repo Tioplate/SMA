@@ -11,6 +11,10 @@ typedef struct
     int expansionFactor;     // 扩展因子：每个束个体产生的邻域解数量
     int hybridInterval;      // 混合间隔：多少代执行一次束搜索
     double eliteRatio;       // 精英比例：直接保留的最优个体比例
+    // 新增：自适应参数
+    int baseBeamWidth;       // 基础束宽（用于自适应调整）
+    int minBeamWidth;        // 最小束宽
+    int maxBeamWidth;        // 最大束宽
 } BeamConfig;
 
 // SMA-Beam 结果结构（继承SMAResult）
