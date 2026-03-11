@@ -143,7 +143,7 @@ FIT_DATA_TYPE TSPTW(FIT_DATA_TYPE *x, int dim, FIT_DATA_TYPE speed, dataMatrix *
     free(order);
 
     // 目标函数：当前时间 + 100 * 超时惩罚
-    FIT_DATA_TYPE fitness = currentTime + 10.0 * totalOvertime;
+    FIT_DATA_TYPE fitness = currentTime + 100.0 * totalOvertime;
 
     return fitness;
 }
