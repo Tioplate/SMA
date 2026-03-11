@@ -142,19 +142,8 @@ FIT_DATA_TYPE TSPTW(FIT_DATA_TYPE *x, int dim, FIT_DATA_TYPE speed, dataMatrix *
 
     free(order);
 
-    // 修改：返回makespan（完工时间）而不是距离
-    // makespan = currentTime（返回仓库的时间）
-    // 如果有超时，加上较大的惩罚使其不可行
-    FIT_DATA_TYPE fitness;
-
-    if (totalOvertime < 1e-6) {
-        // 完全可行解：返回makespan（完工时间）
-        fitness = currentTime;
-    } else {
-        // 有超时：返回一个很大的惩罚值表示不可行
-        // 使用currentTime + 大惩罚，这样仍然能区分不同程度的超时
-        fitness = currentTime + 10.0 * totalOvertime;
-    }
+    // 目标函数：当前时间 + 100 * 超时惩罚
+    FIT_DATA_TYPE fitness = currentTime + 100.0 * totalOvertime;
 
     return fitness;
 }

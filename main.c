@@ -125,8 +125,8 @@ int main()
             char basename[256];
             extractBaseName(filename, basename, sizeof(basename));
 
-            // 固定使用60秒（1分钟）时间限制
-            double timeLimit = 60.0; // 固定1分钟
+            // 固定使用20秒时间限制
+            double timeLimit = 20.0; // 固定20秒
             printf("  Time limit: %.2f seconds (fixed)\n", timeLimit);
 
             // 不再使用早停机制
@@ -235,8 +235,8 @@ int main()
         char basename[256];
         extractBaseName(entry->d_name, basename, sizeof(basename));
 
-        // 固定使用60秒（1分钟）时间限制
-        double timeLimit = 60.0; // 固定1分钟
+        // 固定使用20秒时间限制
+        double timeLimit = 20.0; // 固定20秒
         printf("  Time limit: %.2f seconds (fixed)\n", timeLimit);
 
         // 不再使用早停机制

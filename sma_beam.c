@@ -451,7 +451,7 @@ SMABeamResult* SMA_Beam_TimeLimited_WithEarlyStop(
     printf("Adaptive Beam Width Range: [%d, %d]\n", beamConfig.minBeamWidth, beamConfig.maxBeamWidth);
 
     // 动态收敛曲线（预估最多记录100000个点，足够60秒运行）
-    int maxIterations = 100000;
+    int maxIterations = 10000000;
     FIT_DATA_TYPE *convergenceCurve = (FIT_DATA_TYPE *)malloc(maxIterations * sizeof(FIT_DATA_TYPE));
 
     // 主循环：基于时间限制
