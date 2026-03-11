@@ -700,7 +700,7 @@ SMABeamResult* SMA_Beam_TimeLimited_WithEarlyStop(
         }
 
         // 定期输出进度
-        if (t % 50 == 0 || t == 1)
+        if (t % 10000 == 0 || t == 1)
         {
             double currentElapsed = (double)(clock() - startClock) * 1000.0 / CLOCKS_PER_SEC;
             printf("[Iter %d] Best: %.2f, Time: %.2f ms (%.1f%% of limit)\n",
