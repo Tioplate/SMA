@@ -1,7 +1,5 @@
 // SMA-Beam 混合算法测试程序
 #include "sma_beam.h"
-#include "dataset_time_limits.h"
-#include "expected_results.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,6 +9,30 @@
 
 // 控制是否输出最佳路线详情，注释掉此行即可关闭
 //#define PRINT_BEST_ROUTE
+
+double get_expected_makespan(const char* datasetName) {
+    FILE* fp = fopen("../dataset/Makespan_Bounds.csv", "r");
+    if (!fp) {
+        fp = fopen("dataset/Makespan_Bounds.csv", "r");
+        if (!fp) {
+            return -1.0;
+        }
+    }
+    char line[1024];
+    while (fgets(line, sizeof(line), fp)) {
+        char folder[256], file[256], lb[256], ub[256];
+        int parsed = sscanf(line, "%[^,],%[^,],%[^,],%[^,]", folder, file, lb, ub);
+        if (parsed >= 3) {
+            if (strcmp(file, datasetName) == 0) {
+                fclose(fp);
+                if (strcmp(lb, "*") == 0) return -1.0;
+                return atof(lb);
+            }
+        }
+    }
+    fclose(fp);
+    return -1.0;
+}
 
 int main()
 {
