@@ -1,0 +1,18 @@
+1. 初期化 (Initialization)
+    時間枠ヒューリスティックで初期集団 X を生成・評価
+
+2. メインループ (While t < Tmax)
+    重み W を計算 (フィードバック)
+    For 各個体 Xi do
+        If random < z then
+            大域的探索 (ランダム位置更新)
+        Else
+            局所的活用 (重み W を利用して位置更新)
+        End If
+        // ★制約処理 (Constraint Handling)
+        If 解が実行不可能 then 古い解にロールバック (実行可能性維持)
+    End For
+    ・停滞を検知 → 再起動 (Restart)
+    t = t + 1
+
+3. 出力: 最適解 X
