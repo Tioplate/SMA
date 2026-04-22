@@ -72,6 +72,10 @@ SMAResult* SMA(int pop, int DIM, FIT_DATA_TYPE *lb, FIT_DATA_TYPE *ub, char *dat
     int t = 1;
     time_t startTime = time(NULL);
     while (t <= T) {
+        if (difftime(time(NULL), startTime) >= 120.0) {
+            printf("Time limit of 120 seconds reached at iteration %d.\n", t);
+            break;
+        }
         fit = sortFitness(fit, pop);
         x = sortIndex(x, fit, pop);
         FIT_DATA_TYPE bestFitness = fit[0].fitness;
@@ -142,8 +146,11 @@ SMAResult* SMA(int pop, int DIM, FIT_DATA_TYPE *lb, FIT_DATA_TYPE *ub, char *dat
             }
         }
         convergenceCurve[t - 1] = destinationFitness;
-        if (t % 1 == 0) {
-            printf("At iteration %d, the best fitness is %lf.\n", t, destinationFitness);
+        if (t % 1000 == 0) {
+            FIT_DATA_TYPE real_makespan = TSPTW_soft(bestPositions, DIM, speed, data, 0.0, 0.0);
+            FIT_DATA_TYPE late_penalty = TSPTW_soft(bestPositions, DIM, speed, data, 0.0, 1.0) - real_makespan;
+            int is_feasible = (late_penalty <= 1e-6);
+            printf("At iteration %d, the best fitness is %lf, real makespan is %lf, feasible: %s.\n", t, destinationFitness, real_makespan, is_feasible ? "Yes" : "No");
         }
             /*printf(" The best route is [");
             for (int i = 0; i < DIM - 1; i++)
@@ -157,8 +164,14 @@ SMAResult* SMA(int pop, int DIM, FIT_DATA_TYPE *lb, FIT_DATA_TYPE *ub, char *dat
     }
     time_t endTime = time(NULL);
     double elapsedSeconds = difftime(endTime, startTime);
+
+    // 在位置索引转换之前，使用真实最优位置计算完全没有惩罚的真实 makespan 和 迟到惩罚
+    FIT_DATA_TYPE final_makespan = TSPTW_soft(bestPositions, DIM, speed, data, 0.0, 0.0);
+    FIT_DATA_TYPE final_late_penalty = TSPTW_soft(bestPositions, DIM, speed, data, 0.0, 1.0) - final_makespan;
+    int is_final_feasible = (final_late_penalty <= 1e-6);
+
     bestPositions = sortPostionIndex(bestPositions, DIM);
-    printf("Done, the best fitness is %lf, time %.0f seconds.\n", destinationFitness, elapsedSeconds);
+    printf("Done, the best fitness is %lf, real makespan is %lf, feasible: %s, time %.0f seconds.\n", destinationFitness, final_makespan, is_final_feasible ? "Yes" : "No", elapsedSeconds);
     printf("Best x set: [");
     for (int i = 0; i < DIM - 1; i++) printf("%lf, ", bestPositions[i]);
     printf("%lf]", bestPositions[DIM - 1]);
@@ -173,6 +186,9 @@ SMAResult* SMA(int pop, int DIM, FIT_DATA_TYPE *lb, FIT_DATA_TYPE *ub, char *dat
     result->destinationFitness = destinationFitness;
     result->bestPositions = bestPositions;
     result->convergenceCurve = convergenceCurve;
+    result->real_makespan = final_makespan;
+    result->feasible = is_final_feasible;
+    result->elapsedSeconds = elapsedSeconds;
 
     free(x);
     free(fit);

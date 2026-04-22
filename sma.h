@@ -8,6 +8,9 @@ typedef struct
     FIT_DATA_TYPE destinationFitness;
     FIT_DATA_TYPE *convergenceCurve; // 数组，大小为iterationATime
     FIT_DATA_TYPE *bestPositions;    // 数组，大小为dimension
+    FIT_DATA_TYPE real_makespan;
+    int feasible;
+    double elapsedSeconds;
 } SMAResult;
 
 FIT_DATA_TYPE **initialization(int pop, int DIM);

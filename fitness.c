@@ -175,7 +175,7 @@ FIT_DATA_TYPE TSPTW_soft(FIT_DATA_TYPE *x, int dim, FIT_DATA_TYPE speed, dataMat
         }
     }
     free(order);
-    return (FIT_DATA_TYPE)(totalDistance + penalty);
+    return (FIT_DATA_TYPE)(arrival + penalty);
 }
 
 int compareFunctionX(const void *a, const void *b)
