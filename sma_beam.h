@@ -79,6 +79,12 @@ BeamConfig createDefaultBeamConfig(int pop);
 // 辅助函数：创建自适应 BeamConfig（根据问题规模动态调整）
 BeamConfig createAdaptiveBeamConfig(int pop, int dimension);
 
+// 局部搜索：2-opt（对解做最多 maxIter 轮 2-opt 改进）
+void localSearch2Opt(FIT_DATA_TYPE *x, int dim, int speed, dataMatrix *data, int maxIter);
+
+// 局部搜索：Or-opt（将单个客户重新插入更优位置，最多 maxIter 轮）
+void localSearchOrOpt(FIT_DATA_TYPE *x, int dim, int speed, dataMatrix *data, int maxIter);
+
 // 辅助函数：束搜索核心操作（从当前种群中选择束并扩展）
 void beamSearchPhase(
     FIT_DATA_TYPE **x,

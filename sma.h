@@ -27,3 +27,5 @@ SMAResult* SMA_TimeLimited(int pop, int DIM, const FIT_DATA_TYPE *lb, const FIT_
 // 新增函数：基于时间限制且可提前停止的版本
 SMAResult* SMA_TimeLimited_WithEarlyStop(int pop, int DIM, const FIT_DATA_TYPE *lb, const FIT_DATA_TYPE *ub, const char *dataPath, int speed, double timeLimitSeconds, double expectedMakespan);
 FIT_DATA_TYPE *sortPostionIndex(FIT_DATA_TYPE *xi, int dim);
+void localSearch2Opt(FIT_DATA_TYPE *keys, int dim, int speed, dataMatrix *data, int maxTries);
+void localSearch2Opt(FIT_DATA_TYPE *keys, int dim, int speed, dataMatrix *data, int maxTries);

@@ -30,192 +30,8 @@ FIT_DATA_TYPE F1(FIT_DATA_TYPE *x, int dim)
     return fitness;
 }
 
-// 保留的 TSP/TSPTW 旧版本示例（注释掉），用于参考不同目标的实现方式
-// ...existing code...
-
 /*
-    TSPTW（软时间窗惩罚）
-    输入：
-      - x: 个体的优先级键数组（长度 dim），其中 x[0] 对应仓库键，但不参与排序；
-      - dim: 维度/节点总数（包含仓库）；
-      - speed: 行驶速度，用于将距离转化为时间；
-      - routeData: 路网数据（距离矩阵 dist 与时间窗 tw）。
-    输出：
-      - 适应度 = 总行驶距离 + 100 * (所有超时节点的超时时间之和)
-    细节：
-      - 仅客户(1..dim-1)参与排序，仓库固定为起终点；
-      - 早到等待，迟到累计超时惩罚；
-      - 返仓也检查时间窗，如有超时也计入惩罚。
-*/
-FIT_DATA_TYPE TSPTW(FIT_DATA_TYPE *x, int dim, FIT_DATA_TYPE speed, dataMatrix *routeData)
-{
-    if (dim <= 1)
-        return 0;
-
-    // 构造客户排序数组，仅包含 1..dim-1 节点
-    xData *order = (xData *)malloc((dim - 1) * sizeof(xData));
-    int k = 0;
-    for (int i = 1; i < dim; i++)
-    {
-        order[k].xIndex = i;  // 保存客户原始索引
-        order[k].data = x[i]; // 使用个体在第 i 维的键值作为排序键
-        k++;
-    }
-    order = sortX(order, dim - 1); // 升序排序，得到访问顺序
-
-    // 时间推进与距离累计变量
-    FIT_DATA_TYPE currentTime = 0.0;     // 当前到达时间
-    FIT_DATA_TYPE startTime;             // 目标点的最早时间窗
-    FIT_DATA_TYPE endTime;               // 目标点的最晚时间窗
-    FIT_DATA_TYPE travelTime;            // 路段行驶时间 = 距离 / 速度
-    FIT_DATA_TYPE distance;              // 路段距离
-    FIT_DATA_TYPE totalDistance = 0.0;   // 总行驶距离
-    FIT_DATA_TYPE totalOvertime = 0.0;   // 所有超时节点的超时时间之和
-
-    // 仓库（0）最早时间出发：若当前时间更早则先等待到 earliest
-    startTime = routeData->tw[0].earliest;
-    endTime = routeData->tw[0].latest;
-    if (currentTime < startTime)
-        currentTime = startTime;
-    // 仓库出发也可能超时，计入惩罚
-    if (currentTime > endTime)
-    {
-        totalOvertime += (currentTime - endTime);
-    }
-
-    // 1) 仓库 -> 第一位客户（若存在客户）
-    if (dim > 1)
-    {
-        int first = order[0].xIndex;
-        distance = routeData->dist[0][first];
-        travelTime = distance / speed;
-        currentTime += travelTime;
-        totalDistance += distance;
-        startTime = routeData->tw[first].earliest;
-        endTime = routeData->tw[first].latest;
-        // 超过最晚时间窗，累计超时
-        if (currentTime > endTime)
-        {
-            totalOvertime += (currentTime - endTime);
-        }
-        // 早于最早窗，等待
-        if (currentTime < startTime)
-            currentTime = startTime;
-    }
-
-    // 2) 客户之间行驶并检查时间窗
-    for (int i = 0; i < dim - 2; i++)
-    {
-        int from = order[i].xIndex;
-        int to = order[i + 1].xIndex;
-        distance = routeData->dist[from][to];
-        travelTime = distance / speed;
-        startTime = routeData->tw[to].earliest;
-        endTime = routeData->tw[to].latest;
-        currentTime += travelTime;
-        totalDistance += distance;
-        // 超时则累计惩罚
-        if (currentTime > endTime)
-        {
-            totalOvertime += (currentTime - endTime);
-        }
-        // 等待到最早窗
-        if (currentTime < startTime)
-            currentTime = startTime;
-    }
-
-    // 3) 最后一个客户 -> 仓库：返航距离计入目标，也检查仓库返回时间窗
-    if (dim > 1)
-    {
-        int last = order[dim - 2].xIndex;
-        distance = routeData->dist[last][0];
-        travelTime = distance / speed;
-        currentTime += travelTime;
-        totalDistance += distance;
-        // 检查返回仓库的时间窗
-        endTime = routeData->tw[0].latest;
-        if (currentTime > endTime)
-        {
-            totalOvertime += (currentTime - endTime);
-        }
-    }
-
-    free(order);
-
-    // 目标函数：当前时间 + 100 * 超时惩罚
-    FIT_DATA_TYPE fitness = currentTime + 10.0 * totalOvertime;
-
-    return fitness;
-}
-
-/*
-    贪心修复函数：按时间窗最早时间重新排序客户
-    用于修复严重违反时间窗约束的解
-*/
-void repairSolutionGreedy(FIT_DATA_TYPE *x, int dim, dataMatrix *routeData, FIT_DATA_TYPE speed)
-{
-    if (!routeData || dim <= 1) return;
-
-    // 创建客户-时间窗映射
-    typedef struct {
-        int customerIdx;
-        FIT_DATA_TYPE earliest;
-    } CustomerTW;
-
-    CustomerTW *customers = (CustomerTW *)malloc((dim - 1) * sizeof(CustomerTW));
-
-    // 收集所有客户及其最早时间窗
-    for (int i = 1; i < dim; i++)
-    {
-        customers[i - 1].customerIdx = i;
-        customers[i - 1].earliest = routeData->tw[i].earliest;
-    }
-
-    // 按最早时间窗排序（贪心策略）
-    for (int i = 0; i < dim - 2; i++)
-    {
-        for (int j = i + 1; j < dim - 1; j++)
-        {
-            if (customers[j].earliest < customers[i].earliest)
-            {
-                CustomerTW temp = customers[i];
-                customers[i] = customers[j];
-                customers[j] = temp;
-            }
-        }
-    }
-
-    // 重新编码为优先级键
-    x[0] = 0; // 仓库
-    for (int i = 0; i < dim - 1; i++)
-    {
-        int custIdx = customers[i].customerIdx;
-        x[custIdx] = (FIT_DATA_TYPE)i + 1e-6 * i;
-    }
-
-    free(customers);
-}
-
-/*
-    TSPTW 带修复版本：如果解严重不可行，先修复再评估
-*/
-FIT_DATA_TYPE TSPTW_WithRepair(FIT_DATA_TYPE *x, int dim, FIT_DATA_TYPE speed, dataMatrix *routeData)
-{
-    // 先评估一次
-    FIT_DATA_TYPE fitness = TSPTW(x, dim, speed, routeData);
-
-    // 如果严重不可行（fitness > 10000 说明有很大惩罚），尝试修复
-    if (fitness > 10000.0 && routeData != NULL)
-    {
-        repairSolutionGreedy(x, dim, routeData, speed);
-        fitness = TSPTW(x, dim, speed, routeData);
-    }
-
-    return fitness;
-}
-
-/*
-    排序比较函数：按 data 升序，支持相等键返回 0，保证 qsort 稳定性需求
+    排序比较函数：按 data 升序
 */
 int compareFunctionX(const void *a, const void *b)
 {
@@ -227,17 +43,16 @@ int compareFunctionX(const void *a, const void *b)
 }
 
 /*
-    sortX：对 xData 数组按 data 升序排序（原地），返回原指针
+    sortX：对 xData 数组按 data 升序排序
 */
 xData *sortX(xData *order, int dim)
 {
-    qsort(order, dim, sizeof(order[0]), compareFunctionX);
+    qsort(order, dim, sizeof(xData), compareFunctionX);
     return order;
 }
 
 /*
-    adjustPostion：示例函数，演示对一个体的各维按键值排序（不修改原个体 x）
-    注意：当前仅分配临时 order 并释放，不改变 x 的实际内容。
+    adjustPostion：示例函数
 */
 FIT_DATA_TYPE **adjustPostion(FIT_DATA_TYPE **x, int pop, int dim)
 {
@@ -250,8 +65,140 @@ FIT_DATA_TYPE **adjustPostion(FIT_DATA_TYPE **x, int pop, int dim)
             order[j].data = x[i][j];
         }
         order = sortX(order, dim);
-        // 这里只做示例，不回写 x[i][j]；真实应用里可在此回写排序后的索引或顺序
         free(order);
     }
     return x;
+}
+
+/*
+    比较函数：按 earliest 升序
+*/
+typedef struct {
+    int customerIdx;
+    double earliest;
+} CustomerTW;
+
+static int cmpCustomerTW(const void *a, const void *b)
+{
+    double da = ((const CustomerTW *)a)->earliest;
+    double db = ((const CustomerTW *)b)->earliest;
+    if (da < db) return -1;
+    if (da > db) return 1;
+    return 0;
+}
+
+/*
+    贪心修复函数：按时间窗最早时间重新排序客户
+*/
+void repairSolutionGreedy(FIT_DATA_TYPE *x, int dim, dataMatrix *routeData, FIT_DATA_TYPE speed)
+{
+    if (!routeData || dim <= 1) return;
+
+    CustomerTW *customers = (CustomerTW *)malloc((dim - 1) * sizeof(CustomerTW));
+
+    for (int i = 1; i < dim; i++)
+    {
+        customers[i - 1].customerIdx = i;
+        customers[i - 1].earliest = routeData->tw[i].earliest;
+    }
+
+    qsort(customers, dim - 1, sizeof(CustomerTW), cmpCustomerTW);
+
+    x[0] = 0;
+    for (int i = 0; i < dim - 1; i++)
+    {
+        int custIdx = customers[i].customerIdx;
+        x[custIdx] = (FIT_DATA_TYPE)i + 1e-6 * i;
+    }
+
+    free(customers);
+}
+
+/*
+    TSPTW 带修复版本
+*/
+FIT_DATA_TYPE TSPTW_WithRepair(FIT_DATA_TYPE *x, int dim, FIT_DATA_TYPE speed, dataMatrix *routeData)
+{
+    FIT_DATA_TYPE fitness = TSPTW(x, dim, speed, routeData);
+    if (fitness > 10000.0 && routeData != NULL)
+    {
+        repairSolutionGreedy(x, dim, routeData, speed);
+        fitness = TSPTW(x, dim, speed, routeData);
+    }
+    return fitness;
+}
+
+/*
+    TSPTW（软时间窗惩罚）
+*/
+FIT_DATA_TYPE TSPTW(FIT_DATA_TYPE *x, int dim, FIT_DATA_TYPE speed, dataMatrix *routeData)
+{
+    if (dim <= 1)
+        return 0;
+
+    int customerCount = dim - 1;
+
+    xData *order = (xData *)malloc(customerCount * sizeof(xData));
+
+    // 填充排序数组
+    for (int i = 1; i < dim; i++)
+    {
+        order[i - 1].xIndex = i;
+        order[i - 1].data   = x[i];
+    }
+    sortX(order, customerCount);
+
+    FIT_DATA_TYPE currentTime   = 0.0;
+    FIT_DATA_TYPE totalDistance = 0.0;
+    FIT_DATA_TYPE totalOvertime = 0.0;
+    FIT_DATA_TYPE startTime, endTime, travelTime, distance;
+
+    // 仓库出发等待逻辑
+    startTime = routeData->tw[0].earliest;
+    endTime   = routeData->tw[0].latest;
+    if (currentTime < startTime) currentTime = startTime;
+    if (currentTime > endTime)   totalOvertime += (currentTime - endTime);
+
+    // 仓库 -> 第一位客户
+    {
+        int first = order[0].xIndex;
+        distance    = routeData->dist[0][first];
+        travelTime  = distance / speed;
+        currentTime += travelTime;
+        totalDistance += distance;
+        startTime = routeData->tw[first].earliest;
+        endTime   = routeData->tw[first].latest;
+        if (currentTime > endTime)   totalOvertime += (currentTime - endTime);
+        if (currentTime < startTime) currentTime = startTime;
+    }
+
+    // 客户之间
+    for (int i = 0; i < customerCount - 1; i++)
+    {
+        int from = order[i].xIndex;
+        int to   = order[i + 1].xIndex;
+        distance    = routeData->dist[from][to];
+        travelTime  = distance / speed;
+        startTime = routeData->tw[to].earliest;
+        endTime   = routeData->tw[to].latest;
+        currentTime  += travelTime;
+        totalDistance += distance;
+        if (currentTime > endTime)   totalOvertime += (currentTime - endTime);
+        if (currentTime < startTime) currentTime = startTime;
+    }
+
+    // 最后一个客户 -> 仓库
+    {
+        int last = order[customerCount - 1].xIndex;
+        distance    = routeData->dist[last][0];
+        travelTime  = distance / speed;
+        currentTime  += travelTime;
+        totalDistance += distance;
+        endTime = routeData->tw[0].latest;
+        if (currentTime > endTime) totalOvertime += (currentTime - endTime);
+    }
+
+    free(order);
+
+    return currentTime + 100.0 * totalOvertime;
 }

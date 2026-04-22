@@ -2,8 +2,15 @@ cmake_minimum_required(VERSION 3.16)
 project(SMA_Back C)
 
 set(CMAKE_C_STANDARD 11)
-# Windows 下自动导出符号，便于 JNI 导出（对 SHARED 目标生效）
 set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
+
+# 强制 Release 模式
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release)
+endif()
+set(CMAKE_C_FLAGS_DEBUG "-O2")
+set(CMAKE_C_FLAGS_RELEASE "-O2")
+set(CMAKE_C_FLAGS "-O2")
 
 # 统一列出算法相关的源文件（不要把 *.h 或 main.c 放进库里）
 set(SMA_SOURCES
@@ -62,6 +69,13 @@ set_target_properties(myjni PROPERTIES
 set_target_properties(test_sma_beam PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 )
+
+# 给每个目标单独追加 -O2，确保 Debug 配置下也生效
+target_compile_options(sma_core PRIVATE -O2)
+target_compile_options(sma_beam_lib PRIVATE -O2)
+target_compile_options(myjni PRIVATE -O2)
+target_compile_options(SMA_Back PRIVATE -O2)
+target_compile_options(test_sma_beam PRIVATE -O2)
 
 # 如需在其他项目中链接，可公开头文件目录
 # target_include_directories(sma_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

@@ -9,27 +9,47 @@
 #define POP 200
 #define SPEED 1
 
+// 控制是否输出最佳路线详情，注释掉此行即可关闭
+//#define PRINT_BEST_ROUTE
+
 int main()
 {
     printf("===========================================\n");
     printf("  SMA-Beam Hybrid Algorithm Test Program  \n");
-    printf("  Testing ALL datasets from SolomonPotvinBengio  \n");
+    printf("  Testing ALL datasets from Dumas  \n");
     printf("===========================================\n\n");
 
-    // 测试数据集列表 - SolomonPotvinBengio 文件夹下的全部30个数据集
-    // const char *testDatasets[] = {
-    //     "rc_201.1", "rc_201.2", "rc_201.3", "rc_201.4",
-    //     "rc_202.1", "rc_202.2", "rc_202.3", "rc_202.4",
-    //     "rc_203.1", "rc_203.2", "rc_203.3", "rc_203.4",
-    //     "rc_204.1", "rc_204.2", "rc_204.3",
-    //     "rc_205.1", "rc_205.2", "rc_205.3", "rc_205.4",
-    //     "rc_206.1", "rc_206.2", "rc_206.3", "rc_206.4",
-    //     "rc_207.1", "rc_207.2", "rc_207.3", "rc_207.4",
-    //     "rc_208.1", "rc_208.2", "rc_208.3"
-    // };
+    // 测试数据集列表 - Dumas 文件夹下的全部数据集
     const char *testDatasets[] = {
-        "rc_208.3"
+        "n100w20.001.txt", "n100w20.002.txt", "n100w20.003.txt", "n100w20.004.txt", "n100w20.005.txt",
+        "n100w40.001.txt", "n100w40.002.txt", "n100w40.003.txt", "n100w40.004.txt", "n100w40.005.txt",
+        "n100w60.001.txt", "n100w60.002.txt", "n100w60.003.txt", "n100w60.004.txt", "n100w60.005.txt",
+        "n150w20.001.txt", "n150w20.002.txt", "n150w20.003.txt", "n150w20.004.txt", "n150w20.005.txt",
+        "n150w40.001.txt", "n150w40.002.txt", "n150w40.003.txt", "n150w40.004.txt", "n150w40.005.txt",
+        "n150w60.001.txt", "n150w60.002.txt", "n150w60.003.txt", "n150w60.004.txt", "n150w60.005.txt",
+        "n200w20.001.txt", "n200w20.002.txt", "n200w20.003.txt", "n200w20.004.txt", "n200w20.005.txt",
+        "n200w40.001.txt", "n200w40.002.txt", "n200w40.003.txt", "n200w40.004.txt", "n200w40.005.txt",
+        "n20w100.001.txt", "n20w100.002.txt", "n20w100.003.txt", "n20w100.004.txt", "n20w100.005.txt",
+        "n20w20.001.txt", "n20w20.002.txt", "n20w20.003.txt", "n20w20.004.txt", "n20w20.005.txt",
+        "n20w40.001.txt", "n20w40.002.txt", "n20w40.003.txt", "n20w40.004.txt", "n20w40.005.txt",
+        "n20w60.001.txt", "n20w60.002.txt", "n20w60.003.txt", "n20w60.004.txt", "n20w60.005.txt",
+        "n20w80.001.txt", "n20w80.002.txt", "n20w80.003.txt", "n20w80.004.txt", "n20w80.005.txt",
+        "n40w100.001.txt", "n40w100.002.txt", "n40w100.003.txt", "n40w100.004.txt", "n40w100.005.txt",
+        "n40w20.001.txt", "n40w20.002.txt", "n40w20.003.txt", "n40w20.004.txt", "n40w20.005.txt",
+        "n40w40.001.txt", "n40w40.002.txt", "n40w40.003.txt", "n40w40.004.txt", "n40w40.005.txt",
+        "n40w60.001.txt", "n40w60.002.txt", "n40w60.003.txt", "n40w60.004.txt", "n40w60.005.txt",
+        "n40w80.001.txt", "n40w80.002.txt", "n40w80.003.txt", "n40w80.004.txt", "n40w80.005.txt",
+        "n60w100.001.txt", "n60w100.002.txt", "n60w100.003.txt", "n60w100.004.txt", "n60w100.005.txt",
+        "n60w20.001.txt", "n60w20.002.txt", "n60w20.003.txt", "n60w20.004.txt", "n60w20.005.txt",
+        "n60w40.001.txt", "n60w40.002.txt", "n60w40.003.txt", "n60w40.004.txt", "n60w40.005.txt",
+        "n60w60.001.txt", "n60w60.002.txt", "n60w60.003.txt", "n60w60.004.txt", "n60w60.005.txt",
+        "n60w80.001.txt", "n60w80.002.txt", "n60w80.003.txt", "n60w80.004.txt", "n60w80.005.txt",
+        "n80w20.001.txt", "n80w20.002.txt", "n80w20.003.txt", "n80w20.004.txt", "n80w20.005.txt",
+        "n80w40.001.txt", "n80w40.002.txt", "n80w40.003.txt", "n80w40.004.txt", "n80w40.005.txt",
+        "n80w60.001.txt", "n80w60.002.txt", "n80w60.003.txt", "n80w60.004.txt", "n80w60.005.txt",
+        "n80w80.001.txt", "n80w80.002.txt", "n80w80.003.txt", "n80w80.004.txt", "n80w80.005.txt"
     };
+
     int numTests = sizeof(testDatasets) / sizeof(testDatasets[0]);
 
     printf("Total datasets to test: %d\n\n", numTests);
@@ -50,7 +70,7 @@ int main()
     {
         const char *datasetName = testDatasets[test];
         char dataPath[256];
-        snprintf(dataPath, sizeof(dataPath), "../dataset/SolomonPotvinBengio/%s.txt", datasetName);
+        snprintf(dataPath, sizeof(dataPath), "../dataset/Dumas/%s", datasetName);
 
         printf("\n========================================\n");
         printf("Testing dataset [%d/%d]: %s\n", test + 1, numTests, datasetName);
@@ -142,6 +162,58 @@ int main()
                    beamResult->beamSearchExecutions, beamResult->solutionsFromBeam);
             if (targetMakespan > 0)
                 printf("Success: %s\n", isSuccess ? "Yes" : "No");
+
+            #ifdef PRINT_BEST_ROUTE
+            {
+                // 解码优先级键为实际访问顺序
+                // bestPositions[0]=depot(固定), [1..dim-1] 为客户优先级键
+                // 按键值升序排序得到访问顺序
+                typedef struct { double key; int node; } NodeKey;
+                NodeKey *nk = (NodeKey *)malloc((dim - 1) * sizeof(NodeKey));
+                for (int i = 1; i < dim; i++) {
+                    nk[i-1].key  = beamResult->bestPositions[i];
+                    nk[i-1].node = i;
+                }
+                // 冒泡排序（dim 一般不大）
+                for (int i = 0; i < dim - 2; i++)
+                    for (int j = i + 1; j < dim - 1; j++)
+                        if (nk[j].key < nk[i].key) { NodeKey tmp = nk[i]; nk[i] = nk[j]; nk[j] = tmp; }
+
+                // 读取数据矩阵用于验证
+                dataMatrix *vdata = readMatrix(dataPath);
+
+                printf("--- Best Route ---\n");
+                printf("0");
+                for (int i = 0; i < dim - 1; i++) printf(" -> %d", nk[i].node);
+                printf(" -> 0\n");
+
+                // 逐步验证时间窗，输出每站到达/离开时间
+                if (vdata) {
+                    printf("%-6s %-8s %-10s %-10s %-10s %-6s\n",
+                           "Step", "Node", "Arrive", "Early", "Late", "OK?");
+                    double t = vdata->tw[0].earliest;
+                    int feasible = 1;
+                    for (int i = 0; i < dim - 1; i++) {
+                        int from = (i == 0) ? 0 : nk[i-1].node;
+                        int to   = nk[i].node;
+                        t += vdata->dist[from][to] / (double)SPEED;
+                        int ok = (t <= vdata->tw[to].latest);
+                        if (t < vdata->tw[to].earliest) t = vdata->tw[to].earliest;
+                        if (!ok) feasible = 0;
+                        printf("%-6d %-8d %-10.2f %-10.2f %-10.2f %-6s\n",
+                               i + 1, to, t,
+                               vdata->tw[to].earliest, vdata->tw[to].latest,
+                               ok ? "YES" : "*** NO ***");
+                    }
+                    // 返回仓库
+                    t += vdata->dist[nk[dim-2].node][0] / (double)SPEED;
+                    printf("Return to depot at: %.2f\n", t);
+                    printf("Route feasible: %s\n", feasible ? "YES" : "NO (time window violated!)");
+                    freeDataMatrix(vdata);
+                }
+                free(nk);
+            }
+            #endif
 
             free(beamResult->bestPositions);
             free(beamResult->bestPositionsStart);

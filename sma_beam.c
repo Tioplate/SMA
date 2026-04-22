@@ -24,10 +24,9 @@ BeamConfig createAdaptiveBeamConfig(int pop, int dimension)
 
     if (dimension <= 25)
     {
-        // 小规模问题：标准配置
         config.beamWidth = (pop >= 50) ? (pop / 5) : 10;
-        config.expansionFactor = 5;
-        config.hybridInterval = 20;
+        config.expansionFactor = 3;
+        config.hybridInterval = 200;   // 从20提高到200
         config.eliteRatio = 0.1;
         config.baseBeamWidth = config.beamWidth;
         config.minBeamWidth = config.beamWidth / 2;
@@ -35,30 +34,27 @@ BeamConfig createAdaptiveBeamConfig(int pop, int dimension)
     }
     else if (dimension <= 40)
     {
-        // 中等规模：适度增强
-        config.beamWidth = (pop >= 50) ? (pop / 4) : 15;  // 25%种群
-        config.expansionFactor = 6;
-        config.hybridInterval = 15;  // 更频繁的束搜索
-        config.eliteRatio = 0.12;
+        config.beamWidth = (pop >= 50) ? (pop / 5) : 10;
+        config.expansionFactor = 3;
+        config.hybridInterval = 500;   // 从15提高到500
+        config.eliteRatio = 0.1;
         config.baseBeamWidth = config.beamWidth;
         config.minBeamWidth = config.beamWidth / 2;
-        config.maxBeamWidth = config.beamWidth * 3;
+        config.maxBeamWidth = config.beamWidth * 2;
     }
     else
     {
-        // 大规模问题（>40）：强化配置
-        config.beamWidth = (pop >= 50) ? (pop / 3) : 20;  // 33%种群
-        config.expansionFactor = 8;  // 更多邻域探索
-        config.hybridInterval = 10;  // 非常频繁的束搜索
-        config.eliteRatio = 0.15;    // 保护更多精英
+        config.beamWidth = (pop >= 50) ? (pop / 5) : 10;
+        config.expansionFactor = 3;
+        config.hybridInterval = 1000;  // 从100提高到1000
+        config.eliteRatio = 0.1;
         config.baseBeamWidth = config.beamWidth;
         config.minBeamWidth = config.beamWidth / 2;
         config.maxBeamWidth = config.beamWidth * 2;
 
         printf("[Adaptive Config] Large-scale problem detected (dim=%d)\n", dimension);
-        printf("  Enhanced: BeamWidth=%d (range: %d-%d), ExpansionFactor=%d, HybridInterval=%d\n",
-               config.beamWidth, config.minBeamWidth, config.maxBeamWidth,
-               config.expansionFactor, config.hybridInterval);
+        printf("  BeamWidth=%d, ExpansionFactor=%d, HybridInterval=%d\n",
+               config.beamWidth, config.expansionFactor, config.hybridInterval);
     }
 
     return config;
@@ -438,19 +434,20 @@ SMABeamResult* SMA_Beam_TimeLimited_WithEarlyStop(
     int t = 1;
     int earlyStopTriggered = 0;
     int lastImprovementIter = 0;
-    const int patience = 50;
+    const int patience = 2000;
 
-    // 新增：停滞检测和自适应参数
     int stagnationCounter = 0;
-    const int STAGNATION_THRESHOLD = 500;  // 500次迭代未改进视为停滞
+    const int STAGNATION_THRESHOLD = 500;
     int currentBeamWidth = beamConfig.beamWidth;
+
+    // 预分配 xOld，避免每次迭代 pop 次 malloc/free
+    FIT_DATA_TYPE *xOld = (FIT_DATA_TYPE *)malloc(DIM * sizeof(FIT_DATA_TYPE));
 
     printf("SMA-Beam Hybrid Algorithm Started (Time Limit: %.2f seconds)\n", timeLimitSeconds);
     printf("Beam Width: %d, Expansion Factor: %d, Hybrid Interval: %d\n",
            beamConfig.beamWidth, beamConfig.expansionFactor, beamConfig.hybridInterval);
     printf("Adaptive Beam Width Range: [%d, %d]\n", beamConfig.minBeamWidth, beamConfig.maxBeamWidth);
 
-    // 动态收敛曲线（预估最多记录100000个点，足够60秒运行）
     int maxIterations = 10000000;
     FIT_DATA_TYPE *convergenceCurve = (FIT_DATA_TYPE *)malloc(maxIterations * sizeof(FIT_DATA_TYPE));
 
@@ -466,22 +463,10 @@ SMABeamResult* SMA_Beam_TimeLimited_WithEarlyStop(
             break;
         }
 
-        // Early Stop机制已取消，算法将运行到时间限制为止
-        // if (expectedMakespan > 0 && destinationFitness <= expectedMakespan)
-        // {
-        //     printf("Expected result achieved at iteration %d: %.2f <= %.2f\n",
-        //            t, destinationFitness, expectedMakespan);
-        //     earlyStopTriggered = 1;
-        //     break;
-        // }
-
-        // 排序种群
+        // 每次迭代都必须排序，SMA权重计算依赖准确的best/worst排名
         fit = sortFitness(fit, pop);
         x = sortIndex(x, fit, pop);
-        for (int i = 0; i < pop; i++)
-        {
-            fit[i].popIndex = i;
-        }
+        for (int i = 0; i < pop; i++) fit[i].popIndex = i;
 
         FIT_DATA_TYPE bestFitness = fit[0].fitness;
         FIT_DATA_TYPE worstFitness = fit[pop - 1].fitness;
@@ -509,8 +494,8 @@ SMABeamResult* SMA_Beam_TimeLimited_WithEarlyStop(
                 if (currentBeamWidth > beamConfig.maxBeamWidth)
                     currentBeamWidth = beamConfig.maxBeamWidth;
 
-                printf("[Iter %d] Stagnation detected (%d iters), increasing beam width to %d\n",
-                       t, stagnationCounter, currentBeamWidth);
+                // printf("[Iter %d] Stagnation detected (%d iters), increasing beam width to %d\n",
+                //        t, stagnationCounter, currentBeamWidth);
             }
         }
         else if (stagnationCounter == 0 && t > 100)
@@ -543,8 +528,8 @@ SMABeamResult* SMA_Beam_TimeLimited_WithEarlyStop(
                 solutionsFromBeam++;
                 lastImprovementIter = t;
                 stagnationCounter = 0;  // 重置停滞计数器
-                printf("[Iter %d] Beam Search improved: %.2f -> %.2f (BeamWidth=%d)\n",
-                       t, oldBest, destinationFitness, currentBeamWidth);
+                // printf("[Iter %d] Beam Search improved: %.2f -> %.2f\n",
+                //        t, oldBest, destinationFitness);
             }
         }
 
@@ -568,28 +553,25 @@ SMABeamResult* SMA_Beam_TimeLimited_WithEarlyStop(
             FIT_DATA_TYPE S = (worstFitness - bestFitness) + 1e-8;
             if (S < 1e-12) S = 1e-12;
 
-            // 计算权重
+            // 计算权重（只对需要的维度计算）
             for (int i = 0; i < pop; i++)
             {
-                for (int j = 0; j < DIM; j++)
+                FIT_DATA_TYPE w_val;
+                if (fit[i].fitness == FIT_DATA_TYPE_MAX)
                 {
-                    if (fit[i].fitness == FIT_DATA_TYPE_MAX)
-                    {
-                        W[i][j] = 0.0;
-                        continue;
-                    }
-                    FIT_DATA_TYPE numer = (fit[i].fitness - bestFitness);
+                    w_val = 0.0;
+                }
+                else
+                {
+                    FIT_DATA_TYPE numer = fit[i].fitness - bestFitness;
                     if (numer < 0) numer = 0;
                     FIT_DATA_TYPE frac = numer / S;
-                    if (i < pop / 2)
-                    {
-                        W[i][j] = 1 + rand01() * log10(frac + 1.0);
-                    }
-                    else
-                    {
-                        W[i][j] = 1 - rand01() * log10(frac + 1.0);
-                    }
+                    double logVal = log10((double)frac + 1.0);
+                    w_val = (i < pop / 2) ? (FIT_DATA_TYPE)(1.0 + rand01() * logVal)
+                                          : (FIT_DATA_TYPE)(1.0 - rand01() * logVal);
                 }
+                // 同一个体所有维度用同一权重（避免pop*DIM次log10）
+                for (int j = 0; j < DIM; j++) W[i][j] = w_val;
             }
 
             FIT_DATA_TYPE tt = -((FIT_DATA_TYPE)t / (FIT_DATA_TYPE)maxIterations) + 1;
@@ -602,7 +584,7 @@ SMABeamResult* SMA_Beam_TimeLimited_WithEarlyStop(
             // 位置更新
             for (int i = 0; i < pop; i++)
             {
-                FIT_DATA_TYPE *xOld = (FIT_DATA_TYPE *)malloc(DIM * sizeof(FIT_DATA_TYPE));
+                // 用预分配的 xOld，避免循环内 malloc/free
                 memcpy(xOld, x[i], DIM * sizeof(FIT_DATA_TYPE));
                 FIT_DATA_TYPE oldFitness = fit[i].fitness;
 
@@ -647,28 +629,25 @@ SMABeamResult* SMA_Beam_TimeLimited_WithEarlyStop(
                 if (newFitness == FIT_DATA_TYPE_MAX && oldFitness != FIT_DATA_TYPE_MAX)
                 {
                     memcpy(x[i], xOld, DIM * sizeof(FIT_DATA_TYPE));
+                    fit[i].fitness = oldFitness;  // 回滚适应度
                 }
-
-                free(xOld);
+                else
+                {
+                    fit[i].fitness = newFitness;  // 直接更新，不再重复评估
+                    if (newFitness < destinationFitness)
+                    {
+                        destinationFitness = newFitness;
+                        memcpy(bestPositions, x[i], DIM * sizeof(FIT_DATA_TYPE));
+                        lastImprovementIter = t;
+                    }
+                }
             }
         }
 
-        // 重新评估
-        for (int i = 0; i < pop; i++)
-        {
-            fit[i].fitness = TSPTW(x[i], DIM, speed, data);
-            if (fit[i].fitness < destinationFitness)
-            {
-                destinationFitness = fit[i].fitness;
-                memcpy(bestPositions, x[i], DIM * sizeof(FIT_DATA_TYPE));
-                lastImprovementIter = t;
-            }
-        }
-
-        // 每1000次迭代，强制修复最差的30%个体（防止陷入不可行区域）
+        // 每1000次迭代修复最差30%个体
         if (t % 1000 == 0 && data != NULL)
         {
-            int repairCount = pop * 3 / 10; // 修复30%
+            int repairCount = pop * 3 / 10;
             for (int i = pop - repairCount; i < pop; i++)
             {
                 if (fit[i].fitness > 10000.0)
@@ -690,13 +669,43 @@ SMABeamResult* SMA_Beam_TimeLimited_WithEarlyStop(
         {
             int restartCount = pop / 3;
             for (int i = pop - restartCount; i < pop; i++)
-            {
                 for (int j = 0; j < DIM; j++)
-                {
                     x[i][j] = rand01() * (DIM - 1) + 1e-6 * j;
-                }
-            }
             lastImprovementIter = t;
+        }
+
+        // 对当前最优解做局部搜索（每200次迭代一次）
+        if (t % 200 == 0)
+        {
+            FIT_DATA_TYPE *localBest = (FIT_DATA_TYPE *)malloc(DIM * sizeof(FIT_DATA_TYPE));
+            memcpy(localBest, bestPositions, DIM * sizeof(FIT_DATA_TYPE));
+
+            localSearch2Opt(localBest, DIM, speed, data, 3);
+            FIT_DATA_TYPE localFit = TSPTW(localBest, DIM, speed, data);
+            if (localFit < destinationFitness)
+            {
+                destinationFitness = localFit;
+                memcpy(bestPositions, localBest, DIM * sizeof(FIT_DATA_TYPE));
+                // 把改进的解注入种群最优位置
+                memcpy(x[0], localBest, DIM * sizeof(FIT_DATA_TYPE));
+                fit[0].fitness = localFit;
+                lastImprovementIter = t;
+                //printf("[Iter %d] 2-opt improved: %.2f\n", t, localFit);
+            }
+
+            localSearchOrOpt(localBest, DIM, speed, data, 3);
+            localFit = TSPTW(localBest, DIM, speed, data);
+            if (localFit < destinationFitness)
+            {
+                destinationFitness = localFit;
+                memcpy(bestPositions, localBest, DIM * sizeof(FIT_DATA_TYPE));
+                memcpy(x[0], localBest, DIM * sizeof(FIT_DATA_TYPE));
+                fit[0].fitness = localFit;
+                lastImprovementIter = t;
+                //printf("[Iter %d] Or-opt improved: %.2f\n", t, localFit);
+            }
+
+            free(localBest);
         }
 
         // 定期输出进度
@@ -706,11 +715,14 @@ SMABeamResult* SMA_Beam_TimeLimited_WithEarlyStop(
             printf("[Iter %d] Best: %.2f, Time: %.2f ms (%.1f%% of limit)\n",
                    t, destinationFitness, currentElapsed,
                    (currentElapsed / timeLimitMs) * 100.0);
+            fflush(stdout);
         }
 
         t++;
-        if (t > maxIterations) break;  // 安全限制
+        if (t > maxIterations) break;
     }
+
+    free(xOld);  // 释放预分配的缓冲区
 
     clock_t endClock = clock();
     double elapsed_ms = (double)(endClock - startClock) * 1000.0 / CLOCKS_PER_SEC;

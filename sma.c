@@ -135,7 +135,7 @@ static double calculateDiversity(FIT_DATA_TYPE **x, int pop, int dim)
 }
 
 // 新增：2-opt局部搜索（针对优先级编码的TSPTW）
-static void localSearch2Opt(FIT_DATA_TYPE *keys, int dim, int speed, dataMatrix *data, int maxTries)
+void localSearch2Opt(FIT_DATA_TYPE *keys, int dim, int speed, dataMatrix *data, int maxTries)
 {
     if (!keys || !data || dim <= 3) return;
 
@@ -169,6 +169,16 @@ static void localSearch2Opt(FIT_DATA_TYPE *keys, int dim, int speed, dataMatrix 
         {
             for (int j = i + 1; j < dim - 1 && !improved; j++)
             {
+                // 【新增】O(1) 剪枝：检查交换后引入的两条新边是否在预处理时被标记为不可达（极大值）
+                int nodeBeforeI = (i == 0) ? 0 : order[i - 1].xIndex;
+                int nodeAfterJ = (j == dim - 2) ? 0 : order[j + 1].xIndex;
+
+                if (data->dist[nodeBeforeI][order[j].xIndex] >= 9999998.0 ||
+                    data->dist[order[i].xIndex][nodeAfterJ] >= 9999998.0)
+                {
+                    continue; // 必然不可行，直接跳过内存分配和耗时的 TSPTW 评估
+                }
+
                 // 交换order[i]和order[j]
                 int tmpIdx = order[i].xIndex;
                 order[i].xIndex = order[j].xIndex;
@@ -215,7 +225,7 @@ static void localSearch2Opt(FIT_DATA_TYPE *keys, int dim, int speed, dataMatrix 
 }
 
 // 新增：Or-opt局部搜索（移动一个或两个连续客户到其他位置）
-static void localSearchOrOpt(FIT_DATA_TYPE *keys, int dim, int speed, dataMatrix *data, int maxTries)
+void localSearchOrOpt(FIT_DATA_TYPE *keys, int dim, int speed, dataMatrix *data, int maxTries)
 {
     if (!keys || !data || dim <= 3) return;
 
@@ -249,6 +259,10 @@ static void localSearchOrOpt(FIT_DATA_TYPE *keys, int dim, int speed, dataMatrix
             {
                 if (i == j) continue;
 
+                // 【新增】O(1) 剪枝预判：如果是将 i 插入到 j 的位置，会引入新的边。
+                // 这取决于我们是向前移动还是向后移动。
+                // 简单起见，我们可以在构造 tempOrder 后，检查新形成的关键连接是否被标记为极大值。
+
                 // 保存原始order
                 int *tempOrder = (int *)malloc((dim - 1) * sizeof(int));
                 for (int k = 0; k < dim - 1; k++)
@@ -274,6 +288,22 @@ static void localSearchOrOpt(FIT_DATA_TYPE *keys, int dim, int speed, dataMatrix
                 }
                 tempOrder[j] = moved;
 
+                // 【新增】剪枝：快速检查转移点附近的新边是否有效
+                // Or-opt 移动一个节点到 j 处，会形成两条全新的连接：
+                // tempOrder[j-1] -> tempOrder[j] (若 j>0)   或  0 -> tempOrder[0]
+                // tempOrder[j] -> tempOrder[j+1] (若 j<dim-2) 或 tempOrder[dim-2] -> 0
+                // 另外原本 i 处的节点移走后，i 前后的节点相连也是新边。为求速度，这里至少检查最易违规的 j 处连接。
+                int prevJ = (j == 0) ? 0 : tempOrder[j - 1];
+                int nextJ = (j == dim - 2) ? 0 : tempOrder[j + 1];
+                int currJ = tempOrder[j];
+
+                if (data->dist[prevJ][currJ] >= 9999998.0 ||
+                    data->dist[currJ][nextJ] >= 9999998.0)
+                {
+                    free(tempOrder);
+                    continue; // 必然不可行，直接跳过 TSPTW() 评估
+                }
+
                 // 重新构造键
                 FIT_DATA_TYPE *newKeys = (FIT_DATA_TYPE *)malloc(dim * sizeof(FIT_DATA_TYPE));
                 newKeys[0] = keys[0];
@@ -291,14 +321,9 @@ static void localSearchOrOpt(FIT_DATA_TYPE *keys, int dim, int speed, dataMatrix
                     {
                         keys[k] = newKeys[k];
                     }
-                    for (int k = 0; k < dim - 1; k++)
-                    {
-                        order[k].xIndex = tempOrder[k];
-                    }
                     currentFitness = newFitness;
                     improved = 1;
                     free(newKeys);
-                    free(tempOrder);
                     break;
                 }
 
@@ -2010,7 +2035,7 @@ static void layeredRestart(FIT_DATA_TYPE **x, int pop, int dim, dataMatrix *data
                 x[i][0] = 0;
                 for (int j = 1; j < dim; j++)
                 {
-                    x[i][j] = normalize_range(data->tw[j].earliest, minEar, maxEar, dim) + 1e-6 * j;
+                    x[i][j] = normalize_range(data->tw[j].earliest, minEar, maxEar, DIM) + 1e-6 * j;
                 }
             }
             else

@@ -75,6 +75,25 @@ dataMatrix* readMatrix(char* path)
 
     fclose(fp);
 
+    // 预处理：剔除无效边
+    // 如果在最短情况下（即便在节点i的最早时间出发）到达节点j所需的时间都已经超过了j的最晚时间窗，那么说明这条路绝对不可行
+    int pruned_edges = 0;
+    for (int i = 0; i < n; ++i)
+    {
+        for (int j = 0; j < n; ++j)
+        {
+            if (i != j)
+            {
+                if (tw[i].earliest + dist[i][j] > tw[j].latest)
+                {
+                    dist[i][j] = 9999999.0; // 设为一个极大的惩罚值，代表不可达
+                    pruned_edges++;
+                }
+            }
+        }
+    }
+    printf("预处理：根据时间窗约束，剔除了 %d 条无效路径\n", pruned_edges);
+
     // 4. 示例输出部分数据
     printf("\n距离矩阵部分（前5x5）：\n");
     for (int i = 0; i < (n < 5 ? n : 5); ++i)
