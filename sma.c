@@ -146,7 +146,7 @@ SMAResult* SMA(int pop, int DIM, FIT_DATA_TYPE *lb, FIT_DATA_TYPE *ub, char *dat
             }
         }
         convergenceCurve[t - 1] = destinationFitness;
-        if (t % 1000 == 0) {
+        if (t % 10000 == 0) {
             FIT_DATA_TYPE real_makespan = TSPTW_soft(bestPositions, DIM, speed, data, 0.0, 0.0);
             FIT_DATA_TYPE late_penalty = TSPTW_soft(bestPositions, DIM, speed, data, 0.0, 1.0) - real_makespan;
             int is_feasible = (late_penalty <= 1e-6);
