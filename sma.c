@@ -2035,7 +2035,7 @@ static void layeredRestart(FIT_DATA_TYPE **x, int pop, int dim, dataMatrix *data
                 x[i][0] = 0;
                 for (int j = 1; j < dim; j++)
                 {
-                    x[i][j] = normalize_range(data->tw[j].earliest, minEar, maxEar, DIM) + 1e-6 * j;
+                    x[i][j] = normalize_range(data->tw[j].earliest, minEar, maxEar, dim) + 1e-6 * j;
                 }
             }
             else

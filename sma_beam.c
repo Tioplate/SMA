@@ -357,6 +357,15 @@ SMABeamResult* SMA_Beam_TimeLimited_WithEarlyStop(
 
     dataMatrix *data = readMatrix((char*)dataPath);
 
+    // 加载一份未经裁剪的原始数据用于验证
+    dataMatrix *original_data = readMatrix((char*)dataPath);
+
+    // 预处理：四步时间窗收紧法则（约束传播，剪枝无效边）
+    tightenTimeWindows(data, (double)speed);
+
+    // 预处理：三步网络剔除法则（超时断边 + 子路径校验 + 传递闭包）
+    filterNetwork(data, (double)speed);
+
     // Beam Search 统计
     int beamSearchExecutions = 0;
     int solutionsFromBeam = 0;
@@ -718,6 +727,67 @@ SMABeamResult* SMA_Beam_TimeLimited_WithEarlyStop(
             fflush(stdout);
         }
 
+        // --- 核心修改：基于未经裁剪的原始数据集验证可行性并判断 Early Stop ---
+        if (original_data != NULL && destinationFitness != FIT_DATA_TYPE_MAX) {
+            FIT_DATA_TYPE currentActualMakespan = 0.0;
+            int isFeasible = 1;
+
+            xData *order = (xData *)malloc((DIM - 1) * sizeof(xData));
+            for (int i = 1, k = 0; i < DIM; i++, k++) {
+                order[k].xIndex = i;
+                order[k].data = bestPositions[i];
+            }
+            sortX(order, DIM - 1);
+
+            FIT_DATA_TYPE currentTimeTS = original_data->tw[0].earliest;
+            FIT_DATA_TYPE speedVal = (speed <= 0) ? 1.0 : (FIT_DATA_TYPE)speed;
+            FIT_DATA_TYPE serviceTime = 0.0;
+
+            for (int i = 0; i < DIM - 1; i++) {
+                int from = (i == 0) ? 0 : order[i - 1].xIndex;
+                int to = order[i].xIndex;
+
+                double arrivalTime = currentTimeTS + original_data->dist[from][to] / speedVal;
+
+                if (arrivalTime < original_data->tw[to].earliest) {
+                    arrivalTime = original_data->tw[to].earliest;
+                }
+
+                if (arrivalTime > original_data->tw[to].latest + 1e-4) {
+                    isFeasible = 0;
+                    break;
+                }
+                currentTimeTS = arrivalTime + serviceTime;
+            }
+
+            if (isFeasible) {
+                int lastCustomer = order[DIM - 2].xIndex;
+                double arrivalTime = currentTimeTS + original_data->dist[lastCustomer][0] / speedVal;
+                if (arrivalTime > original_data->tw[0].latest + 1e-4) {
+                    isFeasible = 0;
+                }
+                currentTimeTS = arrivalTime;
+                currentActualMakespan = currentTimeTS;
+            }
+
+            free(order);
+
+            // 如果路径在原始数据集上完全可行
+            if (isFeasible && currentActualMakespan > 0) {
+                if (expectedMakespan > 0) {
+                    if (currentActualMakespan <= expectedMakespan + 1e-4) {
+                        printf("Target makespan (%.2f) reached with a FEASIBLE solution at iteration %d. Early stopping!\n", expectedMakespan, t);
+                        earlyStopTriggered = 1;
+                        break;
+                    }
+                } else {
+                    printf("Found a FEASIBLE solution on the original dataset at iteration %d. Early stopping!\n", t);
+                    earlyStopTriggered = 1;
+                    break;
+                }
+            }
+        }
+
         t++;
         if (t > maxIterations) break;
     }
@@ -731,7 +801,7 @@ SMABeamResult* SMA_Beam_TimeLimited_WithEarlyStop(
     FIT_DATA_TYPE finalActualDistance = 0.0;
     FIT_DATA_TYPE finalMakespan = 0.0;
 
-    if (destinationFitness != FIT_DATA_TYPE_MAX && data != NULL)
+    if (destinationFitness != FIT_DATA_TYPE_MAX && original_data != NULL)
     {
         xData *order = (xData *)malloc((DIM - 1) * sizeof(xData));
         for (int i = 1, k = 0; i < DIM; i++, k++)
@@ -741,37 +811,42 @@ SMABeamResult* SMA_Beam_TimeLimited_WithEarlyStop(
         }
         sortX(order, DIM - 1);
 
-        // 计算距离
+        // 使用 original_data 计算距离
         if (DIM > 1)
         {
-            finalActualDistance += data->dist[0][order[0].xIndex];
+            finalActualDistance += original_data->dist[0][order[0].xIndex];
         }
         for (int i = 0; i < DIM - 2; i++)
         {
-            finalActualDistance += data->dist[order[i].xIndex][order[i + 1].xIndex];
+            finalActualDistance += original_data->dist[order[i].xIndex][order[i + 1].xIndex];
         }
         if (DIM > 1)
         {
-            finalActualDistance += data->dist[order[DIM - 2].xIndex][0];
+            finalActualDistance += original_data->dist[order[DIM - 2].xIndex][0];
         }
 
-        // 计算makespan
-        FIT_DATA_TYPE currentTime = data->tw[0].earliest;
+        // 使用 original_data 计算 makespan
+        FIT_DATA_TYPE currentTimeStr = original_data->tw[0].earliest;
         FIT_DATA_TYPE speedVal = (speed <= 0) ? 1.0 : (FIT_DATA_TYPE)speed;
+        FIT_DATA_TYPE serviceTime = 0.0;
 
         for (int i = 0; i < DIM - 1; i++)
         {
             int from = (i == 0) ? 0 : order[i - 1].xIndex;
             int to = order[i].xIndex;
-            currentTime += data->dist[from][to] / speedVal;
-            if (currentTime < data->tw[to].earliest)
-                currentTime = data->tw[to].earliest;
+
+            double arrivalTime = currentTimeStr + original_data->dist[from][to] / speedVal;
+            if (arrivalTime < original_data->tw[to].earliest)
+                arrivalTime = original_data->tw[to].earliest;
+
+            currentTimeStr = arrivalTime + serviceTime;
         }
 
         // 返回仓库
         int lastCustomer = order[DIM - 2].xIndex;
-        currentTime += data->dist[lastCustomer][0] / speedVal;
-        finalMakespan = currentTime;
+        double arrivalTime = currentTimeStr + original_data->dist[lastCustomer][0] / speedVal;
+        currentTimeStr = arrivalTime;
+        finalMakespan = currentTimeStr;
 
         free(order);
     }
@@ -816,6 +891,7 @@ SMABeamResult* SMA_Beam_TimeLimited_WithEarlyStop(
     free(fit);
     free(W);
     freeDataMatrix(data);
+    if (original_data) freeDataMatrix(original_data);
 
     return result;
 }

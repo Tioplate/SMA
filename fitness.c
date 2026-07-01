@@ -3,22 +3,22 @@
 #include <string.h>
 
 /*
-    模块：适应度计算（TSP/TSPTW）
-    - 本文件实现了示例函数 F1，以及带硬时间窗的 TSPTW 适应度。
-    - 位置编码采用“优先级编码”：对每个维度的实数键进行排序来确定访问顺序。
-    - 在 TSPTW 中：
-        * 将 0 号节点视为仓库（固定起点与终点）；
-        * 仅对客户节点（1..dim-1）按键值排序决定访问顺序；
-        * 时间窗为硬约束：
-            - 到达早于 earliest 可等待；
-            - 到达晚于 latest 直接判不可行（返回 FIT_DATA_TYPE_MAX）；
-        * 目标函数为“总行驶距离”（不包含等待时间），返仓距离计入目标但通常不检查返仓窗口；
-        * speed 用于把距离转换为行驶时间以做时间窗可行性判断。
+    Module: Fitness Calculation (TSP/TSPTW)
+    - This file implements the example function F1, as well as the TSPTW fitness with hard time windows.
+    - The position encoding uses "priority encoding": sorting the real keys of each dimension to determine the visitation order.
+    - In TSPTW:
+        * The 0th node is regarded as the depot (fixed start and end point);
+        * Only the customer nodes (1..dim-1) are sorted by key value to determine the visitation order;
+        * The time windows are hard constraints:
+            - Arriving earlier than the earliest time allows waiting;
+            - Arriving later than the latest time is directly judged as infeasible (returns FIT_DATA_TYPE_MAX);
+        * The objective function is the "total travel distance" (excluding waiting time), with the return distance included in the objective but usually not checking the return window;
+        * Speed is used to convert distance to travel time for feasibility judgment of the time window.
 */
 
 /*
-    F1 function: 示例适应度，fitness == sum(x^2)
-    仅用于测试与对照。
+    F1 function: Example fitness, fitness == sum(x^2)
+    Only for testing and comparison.
 */
 FIT_DATA_TYPE F1(FIT_DATA_TYPE *x, int dim)
 {
@@ -31,7 +31,7 @@ FIT_DATA_TYPE F1(FIT_DATA_TYPE *x, int dim)
 }
 
 /*
-    排序比较函数：按 data 升序
+    Sorting comparison function: Ascending order by data
 */
 int compareFunctionX(const void *a, const void *b)
 {
@@ -43,7 +43,7 @@ int compareFunctionX(const void *a, const void *b)
 }
 
 /*
-    sortX：对 xData 数组按 data 升序排序
+    sortX: Sorts the xData array in ascending order by data
 */
 xData *sortX(xData *order, int dim)
 {
@@ -52,7 +52,7 @@ xData *sortX(xData *order, int dim)
 }
 
 /*
-    adjustPostion：示例函数
+    adjustPostion: Example function
 */
 FIT_DATA_TYPE **adjustPostion(FIT_DATA_TYPE **x, int pop, int dim)
 {
@@ -71,7 +71,7 @@ FIT_DATA_TYPE **adjustPostion(FIT_DATA_TYPE **x, int pop, int dim)
 }
 
 /*
-    比较函数：按 earliest 升序
+    Comparison function: Ascending order by earliest
 */
 typedef struct {
     int customerIdx;
@@ -88,7 +88,7 @@ static int cmpCustomerTW(const void *a, const void *b)
 }
 
 /*
-    贪心修复函数：按时间窗最早时间重新排序客户
+    Greedy repair function: Re-sorts customers by the earliest time of the time window
 */
 void repairSolutionGreedy(FIT_DATA_TYPE *x, int dim, dataMatrix *routeData, FIT_DATA_TYPE speed)
 {
@@ -115,7 +115,7 @@ void repairSolutionGreedy(FIT_DATA_TYPE *x, int dim, dataMatrix *routeData, FIT_
 }
 
 /*
-    TSPTW 带修复版本
+    TSPTW with repair version
 */
 FIT_DATA_TYPE TSPTW_WithRepair(FIT_DATA_TYPE *x, int dim, FIT_DATA_TYPE speed, dataMatrix *routeData)
 {
@@ -129,7 +129,7 @@ FIT_DATA_TYPE TSPTW_WithRepair(FIT_DATA_TYPE *x, int dim, FIT_DATA_TYPE speed, d
 }
 
 /*
-    TSPTW（软时间窗惩罚）
+    TSPTW (soft time window penalty)
 */
 FIT_DATA_TYPE TSPTW(FIT_DATA_TYPE *x, int dim, FIT_DATA_TYPE speed, dataMatrix *routeData)
 {
@@ -137,10 +137,8 @@ FIT_DATA_TYPE TSPTW(FIT_DATA_TYPE *x, int dim, FIT_DATA_TYPE speed, dataMatrix *
         return 0;
 
     int customerCount = dim - 1;
-
     xData *order = (xData *)malloc(customerCount * sizeof(xData));
 
-    // 填充排序数组
     for (int i = 1; i < dim; i++)
     {
         order[i - 1].xIndex = i;
@@ -153,52 +151,333 @@ FIT_DATA_TYPE TSPTW(FIT_DATA_TYPE *x, int dim, FIT_DATA_TYPE speed, dataMatrix *
     FIT_DATA_TYPE totalOvertime = 0.0;
     FIT_DATA_TYPE startTime, endTime, travelTime, distance;
 
-    // 仓库出发等待逻辑
+    // Depot departure
     startTime = routeData->tw[0].earliest;
     endTime   = routeData->tw[0].latest;
     if (currentTime < startTime) currentTime = startTime;
     if (currentTime > endTime)   totalOvertime += (currentTime - endTime);
 
-    // 仓库 -> 第一位客户
+    // Depot -> first customer
     {
         int first = order[0].xIndex;
-        distance    = routeData->dist[0][first];
-        travelTime  = distance / speed;
-        currentTime += travelTime;
+        distance   = routeData->dist[0][first];
+        travelTime = distance / speed;
+        currentTime   += travelTime;
         totalDistance += distance;
+        // Penalize invalid edge
+        if (routeData->E && !routeData->E[0][first])
+            totalOvertime += 1e8;
         startTime = routeData->tw[first].earliest;
         endTime   = routeData->tw[first].latest;
         if (currentTime > endTime)   totalOvertime += (currentTime - endTime);
         if (currentTime < startTime) currentTime = startTime;
     }
 
-    // 客户之间
+    // Between customers
     for (int i = 0; i < customerCount - 1; i++)
     {
         int from = order[i].xIndex;
         int to   = order[i + 1].xIndex;
-        distance    = routeData->dist[from][to];
-        travelTime  = distance / speed;
+        distance   = routeData->dist[from][to];
+        travelTime = distance / speed;
+        // Penalize invalid edge
+        if (routeData->E && !routeData->E[from][to])
+            totalOvertime += 1e8;
         startTime = routeData->tw[to].earliest;
         endTime   = routeData->tw[to].latest;
-        currentTime  += travelTime;
+        currentTime   += travelTime;
         totalDistance += distance;
         if (currentTime > endTime)   totalOvertime += (currentTime - endTime);
         if (currentTime < startTime) currentTime = startTime;
     }
 
-    // 最后一个客户 -> 仓库
+    // Last customer -> depot
     {
         int last = order[customerCount - 1].xIndex;
-        distance    = routeData->dist[last][0];
-        travelTime  = distance / speed;
-        currentTime  += travelTime;
+        distance   = routeData->dist[last][0];
+        travelTime = distance / speed;
+        currentTime   += travelTime;
         totalDistance += distance;
+        // Penalize invalid edge
+        if (routeData->E && !routeData->E[last][0])
+            totalOvertime += 1e8;
         endTime = routeData->tw[0].latest;
         if (currentTime > endTime) totalOvertime += (currentTime - endTime);
     }
 
     free(order);
+    return currentTime + 10000.0 * totalOvertime;
+}
 
-    return currentTime + 100.0 * totalOvertime;
+/*
+    Four-step time window tightening rules (constraint propagation preprocessing)
+    By repeatedly applying the following four rules, tighten the time window [e_k, l_k] of each node,
+    until no changes occur (fixed point), thus pruning invalid edges.
+
+    Rule 1 (Forward push of e_k):
+        e_k = max(e_k, min_{(i,k)∈E} (e_i + dist[i][k]/speed))
+    Rule 2 (Backward push of e_k):
+        e_k = max(e_k, min_{(k,i)∈E} (e_i - dist[k][i]/speed))
+    Rule 3 (Backward pull of l_k):
+        l_k = min(l_k, max_{(k,i)∈E} (l_i - dist[k][i]/speed))
+    Rule 4 (Forward pull of l_k):
+        l_k = min(l_k, max_{(i,k)∈E} (l_i + dist[i][k]/speed))  (Note: using predecessor's l_i)
+
+    An edge (i,k) belongs to the valid edge set E if and only if:
+        e_i + dist[i][k]/speed <= l_k  （Can arrive at k before the deadline from i）
+*/
+void tightenTimeWindows(dataMatrix *data, double speed)
+{
+    if (!data || data->size < 2 || speed <= 0) return;
+
+    int n = data->size; // 节点总数（包含仓库 0）
+    int changed = 1;
+    int maxPasses = 100; // 防止死循环
+
+    while (changed && maxPasses-- > 0)
+    {
+        changed = 0;
+
+        // 注意：严格跳过 k = 0 (车库)。车库的时间窗代表全局起止客观约束，不能被动态压缩！
+        for (int k = 1; k < n; k++)
+        {
+            double orig_ek = data->tw[k].earliest;
+            double orig_lk = data->tw[k].latest;
+
+            double ek = orig_ek;
+            double lk = orig_lk;
+
+            // === 第一步：基于前驱推迟最早时间 (Forward push of e_k) ===
+            {
+                double minArrival = 1e18;
+                int hasPred = 0;
+                for (int i = 0; i < n; i++)
+                {
+                    if (i == k || !data->E[i][k]) continue;
+                    double arrival = data->tw[i].earliest + data->dist[i][k] / speed;
+                    hasPred = 1;
+                    if (arrival < minArrival) minArrival = arrival;
+                }
+                if (hasPred && minArrival > ek) ek = minArrival;
+            }
+
+            // === 第二步：基于后继推迟最早时间 (Backward push of e_k) ===
+            {
+                double minDep = 1e18;
+                int hasSucc = 0;
+                for (int i = 0; i < n; i++)
+                {
+                    if (i == k || !data->E[k][i]) continue;
+                    hasSucc = 1;
+                    double depTime = data->tw[i].earliest - data->dist[k][i] / speed;
+                    if (depTime < minDep) minDep = depTime;
+                }
+                if (hasSucc && minDep > ek) ek = minDep;
+            }
+
+            // 安全裁剪，写入回 e_k
+            if (ek > lk) ek = lk;
+            data->tw[k].earliest = ek;
+
+            // === 第三步：基于后继提前最晚时间 (Backward pull of l_k) ===
+            {
+                double maxLatDep = -1e18;
+                int hasSucc = 0;
+                for (int i = 0; i < n; i++)
+                {
+                    if (i == k || !data->E[k][i]) continue;
+                    hasSucc = 1;
+                    double latDep = data->tw[i].latest - data->dist[k][i] / speed;
+                    if (latDep > maxLatDep) maxLatDep = latDep;
+                }
+                if (hasSucc && maxLatDep < lk) lk = maxLatDep;
+            }
+
+            // === 第四步：基于前驱提前最晚时间 (Forward pull of l_k) ===
+            {
+                double maxLatArr = -1e18;
+                int hasPred = 0;
+                for (int i = 0; i < n; i++)
+                {
+                    if (i == k || !data->E[i][k]) continue;
+                    hasPred = 1;
+                    double latArr = data->tw[i].latest + data->dist[i][k] / speed;
+                    if (latArr > maxLatArr) maxLatArr = latArr;
+                }
+                if (hasPred && maxLatArr < lk) lk = maxLatArr;
+            }
+
+            // 安全裁剪：l_k 至少大于等于 e_k
+            if (lk < ek) lk = ek;
+            data->tw[k].latest = lk;
+
+            // 仅在真实时间窗边界发生有效改变时，才触发下一轮紧缩
+            if ((ek - orig_ek) > 1e-6 || (orig_lk - lk) > 1e-6)
+            {
+                changed = 1;
+            }
+        }
+    }
+
+    printf("[TW Tightening] Done (%d passes used).\n", 100 - maxPasses);
+}
+
+/*
+    Three-step network pruning rules (filterNetwork)
+    Called after tightenTimeWindows, to prune and update the valid edge set E and precedence constraint set R.
+*/
+void filterNetwork(dataMatrix *data, double speed)
+{
+    if (!data || data->size < 2 || speed <= 0 || !data->R || !data->E) return;
+
+    int n = data->size;
+    double **dist = data->dist;
+    TimeWindow *tw = data->tw;
+    int **R = data->R;
+    int **E = data->E;
+
+    // =========================================================
+    // 第一步：直接超时断边
+    // =========================================================
+    int removed1 = 0;
+    for (int i = 0; i < n; i++)
+    {
+        for (int j = 0; j < n; j++)
+        {
+            if (i == j || !E[i][j]) continue;
+
+            if (tw[i].earliest + dist[i][j] / speed > tw[j].latest)
+            {
+                E[i][j] = 0;
+                // 注意：只收集纯客户点之前的绝对顺序 R
+                if (i > 0 && j > 0) {
+                    R[j][i] = 1;
+                }
+                removed1++;
+            }
+        }
+    }
+    printf("[Filter Step1] Removed %d timeout edges\n", removed1);
+
+    // =========================================================
+    // 第二步：三节点子路径校验 (Subpath checking)
+    // 根据最短时间理论限定，去除由于要求 E[j][k] 闭包连通性导致的误伤雪崩
+    // =========================================================
+    int removed2 = 0;
+    int added2 = 0;
+    if (n > 3)
+    {
+        for (int i = 0; i < n; i++)
+        {
+            for (int j = 0; j < n; j++)
+            {
+                if (i == j || !E[i][j]) continue;
+
+                // k 必须是实际客户点，不可以是 0 号点车库
+                for (int k = 1; k < n; k++)
+                {
+                    if (k == i || k == j) continue;
+
+                    // 检查理论下限约束：(i,j,k) 是否可行
+                    int path_ijk = 0;
+                    double tJ = tw[i].earliest + dist[i][j] / speed;
+                    if (tJ < tw[j].earliest) tJ = tw[j].earliest;
+                    if (tJ <= tw[j].latest)
+                    {
+                        double tK = tJ + dist[j][k] / speed;
+                        if (tK <= tw[k].latest) path_ijk = 1;
+                    }
+
+                    // 检查理论下限约束：(k,i,j) 是否可行
+                    int path_kij = 0;
+                    double tI = tw[k].earliest + dist[k][i] / speed;
+                    if (tI < tw[i].earliest) tI = tw[i].earliest;
+                    if (tI <= tw[i].latest)
+                    {
+                        double tJ2 = tI + dist[i][j] / speed;
+                        if (tJ2 <= tw[j].latest) path_kij = 1;
+                    }
+
+                    // 动作1：若 k 无论是作为前置还是后置都彻底不可行，说明 i 和 j 之间绝不可能直接连接
+                    if (!path_ijk && !path_kij)
+                    {
+                        E[i][j] = 0;
+                        removed2++;
+
+                        // 动作2：连带检查 (i,k,j) 这条非直接子路径是否也可行
+                        int path_ikj = 0;
+                        double tK2 = tw[i].earliest + dist[i][k] / speed;
+                        if (tK2 < tw[k].earliest) tK2 = tw[k].earliest;
+                        if (tK2 <= tw[k].latest)
+                        {
+                            double tJ3 = tK2 + dist[k][j] / speed;
+                            if (tJ3 <= tw[j].latest) path_ikj = 1;
+                        }
+
+                        // 如果连阻挡点 k 插在中间都不理会时间允许范围内，且双方都为客户，则强制记录前向顺序
+                        if (!path_ikj && i > 0 && j > 0)
+                        {
+                            if (!R[j][i]) {
+                                R[j][i] = 1;
+                                added2++;
+                            }
+                        }
+
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    printf("[Filter Step2] Removed %d edges, Added %d R via subpath check\n", removed2, added2);
+
+    // =========================================================
+    // 第三步：推移闭包 (Transitive Closure) 与 逆向剔除
+    // =========================================================
+    int closureAdded = 0;
+    int removeByDirect = 0;
+
+    // 绝对先后顺序仅在客户点之间有意义 (1~n-1)，禁止涉及 0 点闭包引发冲突
+    for (int k = 1; k < n; k++)
+    {
+        for (int i = 1; i < n; i++)
+        {
+            if (!R[i][k]) continue;
+            for (int j = 1; j < n; j++)
+            {
+                if (i == j || !R[k][j]) continue;
+
+                if (!R[i][j])
+                {
+                    R[i][j] = 1;
+                    closureAdded++;
+                }
+
+                if (E[i][j])
+                {
+                    E[i][j] = 0;
+                    removeByDirect++;
+                }
+            }
+        }
+    }
+
+    int removed3 = 0;
+    for (int i = 1; i < n; i++)
+    {
+        for (int j = 1; j < n; j++)
+        {
+            if (i == j) continue;
+            if (R[i][j])
+            {
+                if (E[j][i])
+                {
+                    E[j][i] = 0;
+                    removed3++;
+                }
+            }
+        }
+    }
+    printf("[Filter Step3] Added %d closure R, Removed %d by intermediate, %d reverse edges\n", closureAdded, removeByDirect, removed3);
+    printf("[Filter Total] Total valid edges removed: %d\n", removed1 + removed2 + removeByDirect + removed3);
 }

@@ -9,34 +9,34 @@ dataMatrix* readMatrix(char* path)
     dataMatrix *data = malloc(sizeof(dataMatrix));
     if (!fp)
     {
-        perror("文件打开失败");
+        perror("File opening failed");
         return NULL;
     }
 
     int n;
     char line[LINE_LEN];
 
-    // 1. 读取节点数量
+    // 1. Read the number of nodes
     if (fgets(line, LINE_LEN, fp) == NULL)
     {
-        printf("读取节点数量失败\n");
+        printf("Failed to read the number of nodes\n");
         fclose(fp);
         return NULL;
     }
     sscanf(line, "%d", &n);
-    printf("节点数: %d\n", n);
+    printf("Number of nodes: %d\n", n);
 
-    // 2. 读取距离矩阵
+    // 2. Read the distance matrix
     double **dist = malloc(n * sizeof(double *));
     for (int i = 0; i < n; ++i)
         dist[i] = malloc(n * sizeof(double));
 
-    // 按行读取距离矩阵
+    // Read the distance matrix line by line
     for (int i = 0; i < n; ++i)
     {
         if (fgets(line, LINE_LEN, fp) == NULL)
         {
-            printf("读取距离矩阵第%d行失败\n", i);
+            printf("Failed to read line %d of the distance matrix\n", i);
             fclose(fp);
             return NULL;
         }
@@ -44,58 +44,53 @@ dataMatrix* readMatrix(char* path)
         for (int j = 0; j < n; ++j)
         {
             while (*ptr == ' ' || *ptr == '\t')
-                ++ptr; // 跳过空格
+                ++ptr; // Skip spaces
             if (*ptr == '\0' || *ptr == '\n')
                 break;
             sscanf(ptr, "%lf", &dist[i][j]);
-            // 跳到下一个数字
+            // Move to the next number
             while (*ptr != ' ' && *ptr != '\t' && *ptr != '\0' && *ptr != '\n')
                 ++ptr;
         }
     }
 
-    // 3. 读取时间窗
+    // 3. Read the time windows
     TimeWindow *tw = malloc(n * sizeof(TimeWindow));
     for (int i = 0; i < n; ++i)
     {
         if (fgets(line, LINE_LEN, fp) == NULL)
         {
-            printf("读取时间窗第%d行失败\n", i);
+            printf("Failed to read line %d of the time windows\n", i);
             fclose(fp);
             return NULL;
         }
-        // 跳过注释行
+        // Skip comment lines
         if (line[0] == '#')
         {
-            --i; // 不算作一个时间窗
+            --i; // Do not count as a time window
             continue;
         }
         sscanf(line, "%lf %lf", &tw[i].earliest, &tw[i].latest);
     }
 
-    fclose(fp);
+    // Initialize precedence matrix R (all zeros, filled by filterNetwork)
+    int **R = malloc(n * sizeof(int *));
+    for (int i = 0; i < n; i++)
+        R[i] = calloc(n, sizeof(int));
 
-    // 预处理：剔除无效边
-    // 如果在最短情况下（即便在节点i的最早时间出发）到达节点j所需的时间都已经超过了j的最晚时间窗，那么说明这条路绝对不可行
-    int pruned_edges = 0;
-    for (int i = 0; i < n; ++i)
+    // Initialize valid edge matrix E (all ones = all edges initially valid)
+    int **E = malloc(n * sizeof(int *));
+    for (int i = 0; i < n; i++)
     {
-        for (int j = 0; j < n; ++j)
-        {
-            if (i != j)
-            {
-                if (tw[i].earliest + dist[i][j] > tw[j].latest)
-                {
-                    dist[i][j] = 9999999.0; // 设为一个极大的惩罚值，代表不可达
-                    pruned_edges++;
-                }
-            }
-        }
+        E[i] = malloc(n * sizeof(int));
+        for (int j = 0; j < n; j++)
+            E[i][j] = (i != j) ? 1 : 0;
     }
-    printf("预处理：根据时间窗约束，剔除了 %d 条无效路径\n", pruned_edges);
 
-    // 4. 示例输出部分数据
-    printf("\n距离矩阵部分（前5x5）：\n");
+    printf("Preprocessing: distance matrix and time windows loaded, awaiting filterNetwork pruning\n");
+
+    // Output sample data
+    printf("\nDistance matrix (first 5x5):\n");
     for (int i = 0; i < (n < 5 ? n : 5); ++i)
     {
         for (int j = 0; j < (n < 5 ? n : 5); ++j)
@@ -103,25 +98,27 @@ dataMatrix* readMatrix(char* path)
         printf("\n");
     }
 
-    printf("\n时间窗部分（前5个节点）：\n");
+    printf("\nTime windows (first 5 nodes):\n");
     for (int i = 0; i < (n < 5 ? n : 5); ++i)
-        printf("节点%2d: [%6.2f, %6.2f]\n", i, tw[i].earliest, tw[i].latest);
+        printf("Node %2d: [%6.2f, %6.2f]\n", i, tw[i].earliest, tw[i].latest);
+
     data->size = n;
     data->dist = dist;
     data->tw = tw;
+    data->R = R;
+    data->E = E;
+
+    fclose(fp);
     return data;
 }
 
-void freeDataMatrix(dataMatrix* data)
+void freeDataMatrix(dataMatrix *data)
 {
+    if (!data) return;
     int n = data->size;
-    double **dist = data->dist;
-    TimeWindow *tw = data->tw;
-    // 释放内存
-    for (int i = 0; i < n; ++i)
-        free(dist[i]);
-    free(dist);
-    free(tw);
+    if (data->dist) { for (int i = 0; i < n; i++) free(data->dist[i]); free(data->dist); }
+    if (data->tw) free(data->tw);
+    if (data->R) { for (int i = 0; i < n; i++) free(data->R[i]); free(data->R); }
+    if (data->E) { for (int i = 0; i < n; i++) free(data->E[i]); free(data->E); }
     free(data);
-    return;
 }

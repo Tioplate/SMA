@@ -50,6 +50,10 @@ FIT_DATA_TYPE TSPTW(FIT_DATA_TYPE *x, int dim, FIT_DATA_TYPE speed, dataMatrix *
 FIT_DATA_TYPE TSPTW_WithRepair(FIT_DATA_TYPE *x, int dim, FIT_DATA_TYPE speed, dataMatrix *routeData);
 // repairSolutionGreedy：贪心修复函数，按时间窗最早时间重新排序客户
 void repairSolutionGreedy(FIT_DATA_TYPE *x, int dim, dataMatrix *routeData, FIT_DATA_TYPE speed);
+// tightenTimeWindows：四步时间窗收紧法则（约束传播预处理）
+void tightenTimeWindows(dataMatrix *data, double speed);
+// filterNetwork：三步网络剔除法则（超时断边 + 子路径校验 + 传递闭包）
+void filterNetwork(dataMatrix *data, double speed);
 // sortX：对 xData 数组按 data 升序排序，返回传入指针（原地排序）
 xData *sortX(xData *order, int dim);
 // adjustPostion：示例函数，对每个个体的维度做排序演示（当前不改变原 x，返回原指针）
