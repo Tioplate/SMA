@@ -88,30 +88,80 @@ static int cmpCustomerTW(const void *a, const void *b)
 }
 
 /*
-    Greedy repair function: Re-sorts customers by the earliest time of the time window
+    动态贪心修复函数：综合考虑空间距离、等待时间和时间窗违约
 */
 void repairSolutionGreedy(FIT_DATA_TYPE *x, int dim, dataMatrix *routeData, FIT_DATA_TYPE speed)
 {
     if (!routeData || dim <= 1) return;
 
-    CustomerTW *customers = (CustomerTW *)malloc((dim - 1) * sizeof(CustomerTW));
+    int *visited = (int *)calloc(dim, sizeof(int));
+    visited[0] = 1; // 0 是车库起点，已访问
+    int current_node = 0;
+    double current_time = routeData->tw[0].earliest;
+    double spd = (speed <= 0) ? 1.0 : speed;
 
-    for (int i = 1; i < dim; i++)
+    int *order = (int *)malloc(dim * sizeof(int));
+    order[0] = 0;
+
+    for (int step = 1; step < dim; step++)
     {
-        customers[i - 1].customerIdx = i;
-        customers[i - 1].earliest = routeData->tw[i].earliest;
+        int best_next = -1;
+        double best_cost = 1e18; // 寻找最小代价
+
+        for (int j = 1; j < dim; j++)
+        {
+            if (visited[j]) continue;
+
+            double arr_time = current_time + routeData->dist[current_node][j] / spd;
+            double wait_time = 0;
+
+            // 如果早到，允许等待
+            if (arr_time < routeData->tw[j].earliest) {
+                wait_time = routeData->tw[j].earliest - arr_time;
+                arr_time = routeData->tw[j].earliest;
+            }
+
+            // 计算时间窗违规程度
+            double time_violation = 0;
+            if (arr_time > routeData->tw[j].latest) {
+                time_violation = arr_time - routeData->tw[j].latest;
+            }
+
+            // 代价函数：违规绝对优先被惩罚，其次考虑行驶距离和等待时间
+            double cost = time_violation * 100000.0 + routeData->dist[current_node][j] + wait_time * 0.1;
+
+            // 引入 0.8 ~ 1.2 的随机扰动因子，保留种群多样性
+            double rand_factor = 0.8 + 0.4 * ((double)rand() / RAND_MAX);
+            cost *= rand_factor;
+
+            if (cost < best_cost) {
+                best_cost = cost;
+                best_next = j;
+            }
+        }
+
+        if (best_next == -1) break; // 理论上不会发生
+
+        order[step] = best_next;
+        visited[best_next] = 1;
+
+        // 更新当前时间与当前节点
+        double arr_time = current_time + routeData->dist[current_node][best_next] / spd;
+        if (arr_time < routeData->tw[best_next].earliest) arr_time = routeData->tw[best_next].earliest;
+        current_time = arr_time;
+        current_node = best_next;
     }
 
-    qsort(customers, dim - 1, sizeof(CustomerTW), cmpCustomerTW);
-
+    // 将生成的合法（或最接近合法）的顺序转码为优先级键值返回给 SMA
     x[0] = 0;
-    for (int i = 0; i < dim - 1; i++)
+    for (int i = 1; i < dim; i++)
     {
-        int custIdx = customers[i].customerIdx;
+        int custIdx = order[i];
         x[custIdx] = (FIT_DATA_TYPE)i + 1e-6 * i;
     }
 
-    free(customers);
+    free(visited);
+    free(order);
 }
 
 /*
