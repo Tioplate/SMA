@@ -38,50 +38,19 @@ int main()
 {
     printf("===========================================\n");
     printf("  SMA-Beam Hybrid Algorithm Test Program  \n");
-    printf("  Testing ALL datasets from Dumas  \n");
+    printf("  Testing ALL datasets from SolomonPotvinBengio  \n");
     printf("===========================================\n\n");
 
-    // 测试数据集列表 - Dumas 文件夹下的全部数据集
+    // 测试数据集列表 - SolomonPotvinBengio 文件夹下的全部数据集
     const char *testDatasets[] = {
-         // "n100w20.001.txt", "n100w20.002.txt", "n100w20.003.txt", "n100w20.004.txt", "n100w20.005.txt",
-         // "n100w40.001.txt", "n100w40.002.txt", "n100w40.003.txt", "n100w40.004.txt", "n100w40.005.txt",
-         // "n100w60.001.txt", "n100w60.002.txt", "n100w60.003.txt", "n100w60.004.txt", "n100w60.005.txt",
-         // "n150w20.001.txt", "n150w20.002.txt", "n150w20.003.txt", "n150w20.004.txt",
-         "n150w20.005.txt",
-         // "n150w40.001.txt", "n150w40.002.txt",
-         "n150w40.003.txt", // "n150w40.004.txt", "n150w40.005.txt",
-         "n150w60.001.txt", // "n150w60.002.txt", "n150w60.003.txt", "n150w60.004.txt",
-         "n150w60.005.txt",
-         // "n200w20.001.txt", "n200w20.002.txt", "n200w20.003.txt",
-         "n200w20.004.txt", // "n200w20.005.txt",
-         // "n200w40.001.txt",
-         "n200w40.002.txt", // "n200w40.003.txt", "n200w40.004.txt", "n200w40.005.txt",
-         // "n20w100.001.txt", "n20w100.002.txt", "n20w100.003.txt", "n20w100.004.txt", "n20w100.005.txt",
-         // "n20w20.001.txt", "n20w20.002.txt", "n20w20.003.txt", "n20w20.004.txt", "n20w20.005.txt",
-         // "n20w40.001.txt", "n20w40.002.txt", "n20w40.003.txt", "n20w40.004.txt", "n20w40.005.txt",
-         // "n20w60.001.txt", "n20w60.002.txt", "n20w60.003.txt", "n20w60.004.txt", "n20w60.005.txt",
-         // "n20w80.001.txt", "n20w80.002.txt", "n20w80.003.txt", "n20w80.004.txt", "n20w80.005.txt",
-         // "n40w100.001.txt", "n40w100.002.txt", "n40w100.003.txt", "n40w100.004.txt", "n40w100.005.txt",
-         // "n40w20.001.txt",
-         "n40w20.002.txt", // "n40w20.003.txt", "n40w20.004.txt", "n40w20.005.txt",
-         // "n40w40.001.txt", "n40w40.002.txt", "n40w40.003.txt", "n40w40.004.txt", "n40w40.005.txt",
-         // "n40w60.001.txt", "n40w60.002.txt", "n40w60.003.txt", "n40w60.004.txt", "n40w60.005.txt",
-         // "n40w80.001.txt", "n40w80.002.txt", "n40w80.003.txt", "n40w80.004.txt", "n40w80.005.txt",
-         // "n60w100.001.txt",
-         "n60w100.002.txt", // "n60w100.003.txt",
-         "n60w100.004.txt", // "n60w100.005.txt",
-         // "n60w20.001.txt", "n60w20.002.txt", "n60w20.003.txt", "n60w20.004.txt", "n60w20.005.txt",
-         // "n60w40.001.txt", "n60w40.002.txt", "n60w40.003.txt", "n60w40.004.txt", "n60w40.005.txt",
-         // "n60w60.001.txt", "n60w60.002.txt",
-         "n60w60.003.txt","n60w60.004.txt",
-         // "n60w60.005.txt",
-         // "n60w80.001.txt", "n60w80.002.txt", "n60w80.003.txt", "n60w80.004.txt","n60w80.005.txt",
-         // "n80w20.001.txt", "n80w20.002.txt", "n80w20.003.txt", "n80w20.004.txt", "n80w20.005.txt",
-         // "n80w40.001.txt", "n80w40.002.txt", "n80w40.003.txt", "n80w40.004.txt", "n80w40.005.txt",
-         // "n80w60.001.txt", "n80w60.002.txt",
-         "n80w60.003.txt", // "n80w60.004.txt", "n80w60.005.txt",
-         // "n80w80.001.txt",
-         "n80w80.002.txt" // "n80w80.003.txt", "n80w80.004.txt", "n80w80.005.txt"
+         "rc_201.1.txt", "rc_201.2.txt", "rc_201.3.txt", "rc_201.4.txt",
+         "rc_202.1.txt", "rc_202.2.txt", "rc_202.3.txt", "rc_202.4.txt",
+         "rc_203.1.txt", "rc_203.2.txt", "rc_203.3.txt", "rc_203.4.txt",
+         "rc_204.1.txt", "rc_204.2.txt", "rc_204.3.txt",
+         "rc_205.1.txt", "rc_205.2.txt", "rc_205.3.txt", "rc_205.4.txt",
+         "rc_206.1.txt", "rc_206.2.txt", "rc_206.3.txt", "rc_206.4.txt",
+         "rc_207.1.txt", "rc_207.2.txt", "rc_207.3.txt", "rc_207.4.txt",
+         "rc_208.1.txt", "rc_208.2.txt", "rc_208.3.txt"
     };
 
     int numTests = sizeof(testDatasets) / sizeof(testDatasets[0]);
@@ -104,7 +73,7 @@ int main()
     {
         const char *datasetName = testDatasets[test];
         char dataPath[256];
-        snprintf(dataPath, sizeof(dataPath), "../dataset/Dumas/%s", datasetName);
+        snprintf(dataPath, sizeof(dataPath), "../dataset/SolomonPotvinBengio/%s", datasetName);
 
         printf("\n========================================\n");
         printf("Testing dataset [%d/%d]: %s\n", test + 1, numTests, datasetName);
