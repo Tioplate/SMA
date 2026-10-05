@@ -527,10 +527,12 @@ SMAResult* SMA(int pop, int DIM, const FIT_DATA_TYPE *lb, const FIT_DATA_TYPE *u
     // 将秒级计时改为毫秒级：使用 clock() 记录 CPU 时间
     clock_t startClock, endClock;                         // 计时（CPU clock）
     dataMatrix *data = readMatrix((char*)dataPath);              // 读取数据
+    // 加载一份未经裁剪的原始数据，用于早停时的严格可行性验证（与 sma_beam.c 保持一致）
+    dataMatrix *original_data = readMatrix((char*)dataPath);
 
-    // 添加缺失的变量声明
-    double expectedMakespan = -1.0;  // SMA函数不使用早停
     int earlyStopTriggered = 0;
+    // 固定迭代版本不启用早停，这里设为无效值避免未定义符号
+    double expectedMakespan = -1.0;
 
     fit = (fitnessData *)malloc(pop * sizeof(fitnessData));
     convergenceCurve = (FIT_DATA_TYPE *)malloc((T) * sizeof(FIT_DATA_TYPE));
@@ -705,7 +707,7 @@ SMAResult* SMA(int pop, int DIM, const FIT_DATA_TYPE *lb, const FIT_DATA_TYPE *u
                     }
                 }
             }
-            // 求 vb、vc 中参数 a, b（注意使用浮点除法），并给 b 下界，避免 b->0 导致解塌缩
+            // 求 vb��vc 中参数 a, b（注意使用浮点除法），并给 b 下界，避免 b->0 导致解塌缩
             FIT_DATA_TYPE tt = -((FIT_DATA_TYPE)t / (FIT_DATA_TYPE)T) + 1;
             FIT_DATA_TYPE a, b;
             if (tt > -1 && tt < 1)
@@ -729,7 +731,7 @@ SMAResult* SMA(int pop, int DIM, const FIT_DATA_TYPE *lb, const FIT_DATA_TYPE *u
                 boostCounter--;
             }
 
-            // 位置更新：公式2/3，改为"可行解保持"策略
+            // 位置更新：公式2/3���改为"可行解保持"策略
             for (int i = 0; i < pop; i++)
             {
                 // 保存更新前的位置（用于回退）
@@ -1102,6 +1104,54 @@ SMAResult* SMA(int pop, int DIM, const FIT_DATA_TYPE *lb, const FIT_DATA_TYPE *u
             }
         }
 
+        // 早停检查：基于未裁剪的原始数据严格验证可行性，若已达到/优于预期 makespan 则提前退出
+        // 每 5 代检查一次，减少重复解码路径带来的开销
+        if (expectedMakespan > 0 && destinationFitness != FIT_DATA_TYPE_MAX && (t % 5 == 0))
+        {
+            FIT_DATA_TYPE *checkRoute = buildRouteFromKeys(bestPositions, DIM);
+            if (checkRoute && original_data != NULL)
+            {
+                int isFeasible = 1;
+                FIT_DATA_TYPE speedVal = (speed <= 0) ? 1.0 : (FIT_DATA_TYPE)speed;
+                FIT_DATA_TYPE currentTimeCheck = original_data->tw[0].earliest;
+
+                for (int ci = 0; ci < DIM; ci++)
+                {
+                    int from = (int)checkRoute[ci];
+                    int to = (int)checkRoute[ci + 1];
+                    currentTimeCheck += original_data->dist[from][to] / speedVal;
+                    if (ci < DIM - 1)
+                    {
+                        if (currentTimeCheck < original_data->tw[to].earliest)
+                            currentTimeCheck = original_data->tw[to].earliest;
+                        if (currentTimeCheck > original_data->tw[to].latest + 1e-4)
+                        {
+                            isFeasible = 0;
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        // 最后一个客户 -> 仓库，检查仓库时间窗
+                        if (currentTimeCheck < original_data->tw[0].earliest)
+                            currentTimeCheck = original_data->tw[0].earliest;
+                        if (currentTimeCheck > original_data->tw[0].latest + 1e-4)
+                        {
+                            isFeasible = 0;
+                        }
+                    }
+                }
+
+                if (isFeasible && currentTimeCheck <= expectedMakespan + 1e-4)
+                {
+                    earlyStopTriggered = 1;
+                    free(checkRoute);
+                    break; // 跳出主循环 while(1)
+                }
+            }
+            if (checkRoute) free(checkRoute);
+        }
+
         t += 1;
     }
 
@@ -1244,6 +1294,8 @@ static SMAResult* SMA_TimeLimited_Internal(int pop, int DIM, const FIT_DATA_TYPE
     FIT_DATA_TYPE bestFitness;
     clock_t startClock, endClock;
     dataMatrix *data = readMatrix((char*)dataPath);
+    // 加载一份未经裁剪的原始数据，用于早停时的严格可行性验证（与 sma_beam.c 保持一致）
+    dataMatrix *original_data = readMatrix((char*)dataPath);
 
     int earlyStopTriggered = 0;
 
@@ -1798,6 +1850,54 @@ static SMAResult* SMA_TimeLimited_Internal(int pop, int DIM, const FIT_DATA_TYPE
             }
         }
 
+        // 早停检查：基于未裁剪的原始数据严格验证可行性，若已达到/优于预期 makespan 则提前退出
+        // 每 5 代检查一次，减少重复解码路径带来的开销
+        if (expectedMakespan > 0 && destinationFitness != FIT_DATA_TYPE_MAX && (t % 5 == 0))
+        {
+            FIT_DATA_TYPE *checkRoute = buildRouteFromKeys(bestPositions, DIM);
+            if (checkRoute && original_data != NULL)
+            {
+                int isFeasible = 1;
+                FIT_DATA_TYPE speedVal = (speed <= 0) ? 1.0 : (FIT_DATA_TYPE)speed;
+                FIT_DATA_TYPE currentTimeCheck = original_data->tw[0].earliest;
+
+                for (int ci = 0; ci < DIM; ci++)
+                {
+                    int from = (int)checkRoute[ci];
+                    int to = (int)checkRoute[ci + 1];
+                    currentTimeCheck += original_data->dist[from][to] / speedVal;
+                    if (ci < DIM - 1)
+                    {
+                        if (currentTimeCheck < original_data->tw[to].earliest)
+                            currentTimeCheck = original_data->tw[to].earliest;
+                        if (currentTimeCheck > original_data->tw[to].latest + 1e-4)
+                        {
+                            isFeasible = 0;
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        // 最后一个客户 -> 仓库，检查仓库时间窗
+                        if (currentTimeCheck < original_data->tw[0].earliest)
+                            currentTimeCheck = original_data->tw[0].earliest;
+                        if (currentTimeCheck > original_data->tw[0].latest + 1e-4)
+                        {
+                            isFeasible = 0;
+                        }
+                    }
+                }
+
+                if (isFeasible && currentTimeCheck <= expectedMakespan + 1e-4)
+                {
+                    earlyStopTriggered = 1;
+                    free(checkRoute);
+                    break; // 跳出主循环 while(1)
+                }
+            }
+            if (checkRoute) free(checkRoute);
+        }
+
         t += 1;
     }
 
@@ -2035,7 +2135,7 @@ static void layeredRestart(FIT_DATA_TYPE **x, int pop, int dim, dataMatrix *data
                 x[i][0] = 0;
                 for (int j = 1; j < dim; j++)
                 {
-                    x[i][j] = normalize_range(data->tw[j].earliest, minEar, maxEar, dim) + 1e-6 * j;
+                    x[i][j] = normalize_range(data->tw[j].earliest, minEar, maxEar, DIM) + 1e-6 * j;
                 }
             }
             else
@@ -2089,3 +2189,14 @@ SMAResult* SMA_TimeLimited(int pop, int DIM, const FIT_DATA_TYPE *lb, const FIT_
 {
     return SMA_TimeLimited_Internal(pop, DIM, lb, ub, dataPath, speed, timeLimitSeconds, -1.0);
 }
+
+/*
+    SMA_TimeLimited_WithEarlyStop：
+    - 基于时间限制的SMA算法实现，并支持提前停止（当达到 expectedMakespan 时停止）。
+    - expectedMakespan <= 0 时等价于不启用早停，行为与 SMA_TimeLimited 一致。
+*/
+SMAResult* SMA_TimeLimited_WithEarlyStop(int pop, int DIM, const FIT_DATA_TYPE *lb, const FIT_DATA_TYPE *ub, const char *dataPath, int speed, double timeLimitSeconds, double expectedMakespan)
+{
+    return SMA_TimeLimited_Internal(pop, DIM, lb, ub, dataPath, speed, timeLimitSeconds, expectedMakespan);
+}
+

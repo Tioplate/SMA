@@ -57,6 +57,12 @@ add_executable(test_sma_beam
 )
 target_link_libraries(test_sma_beam sma_beam_lib)
 
+# 新增：纯 SMA 测试程序（用于与 SMA-Beam 做对比，不含四步紧缩/三步剔除/贪心修复/Beam Search）
+add_executable(test_sma_pure
+        test_sma_pure.c
+)
+target_link_libraries(test_sma_pure sma_core)
+
 # 可选：将所有产物输出到构建根目录，便于查找（CLion 默认也在该目录下）
 set_target_properties(SMA_Back PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
@@ -69,6 +75,9 @@ set_target_properties(myjni PROPERTIES
 set_target_properties(test_sma_beam PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 )
+set_target_properties(test_sma_pure PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+)
 
 # 给每个目标单独追加 -O2，确保 Debug 配置下也生效
 target_compile_options(sma_core PRIVATE -O2)
@@ -76,6 +85,7 @@ target_compile_options(sma_beam_lib PRIVATE -O2)
 target_compile_options(myjni PRIVATE -O2)
 target_compile_options(SMA_Back PRIVATE -O2)
 target_compile_options(test_sma_beam PRIVATE -O2)
+target_compile_options(test_sma_pure PRIVATE -O2)
 
 # 如需在其他项目中链接，可公开头文件目录
 # target_include_directories(sma_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
